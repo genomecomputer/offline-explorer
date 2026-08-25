@@ -1,8 +1,31 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
-  <rect x="64" y="64" width="896" height="896" rx="224" fill="#176f54"/>
-  <g transform="translate(224 224) scale(24)" fill="none" stroke="#ffffff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M8 0c0 5 8 5 8 10s-8 5-8 8"/>
-    <path d="M16 0c0 5-8 5-8 10s8 5 8 8"/>
-    <path d="M8.8 4h6.4M8.8 14h6.4"/>
+  <defs>
+    <linearGradient id="background" x1="176" y1="144" x2="848" y2="896" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#238565"/>
+      <stop offset="0.55" stop-color="#176F54"/>
+      <stop offset="1" stop-color="#0E4938"/>
+    </linearGradient>
+    <radialGradient id="highlight" cx="0" cy="0" r="1" gradientTransform="translate(332 262) rotate(47) scale(724)" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF" stop-opacity="0.16"/>
+      <stop offset="0.58" stop-color="#FFFFFF" stop-opacity="0.025"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="tile-shadow" x="40" y="40" width="944" height="968" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="22" stdDeviation="26" flood-color="#08271D" flood-opacity="0.28"/>
+    </filter>
+    <filter id="mark-shadow" x="344" y="270" width="336" height="500" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="10" stdDeviation="10" flood-color="#08271D" flood-opacity="0.24"/>
+    </filter>
+  </defs>
+
+  <g filter="url(#tile-shadow)">
+    <rect x="96" y="84" width="832" height="832" rx="190" fill="url(#background)"/>
+    <rect x="96" y="84" width="832" height="832" rx="190" fill="url(#highlight)"/>
+    <rect x="102" y="90" width="820" height="820" rx="184" fill="none" stroke="#FFFFFF" stroke-opacity="0.12" stroke-width="8"/>
+  </g>
+
+  <g filter="url(#mark-shadow)" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M408 316C408 401 616 424 616 512C616 600 408 623 408 708" stroke="#FFFFFF" stroke-width="44"/>
+    <path d="M616 316C616 401 408 424 408 512C408 600 616 623 616 708" stroke="#FFFFFF" stroke-width="44"/>
   </g>
 </svg>

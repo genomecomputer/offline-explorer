@@ -1,6 +1,6 @@
 # Selective reader prototype
 
-This throwaway prototype answers one question: can Genome Explorer fully
+This throwaway prototype answers one question: can Offline Explorer fully
 validate a compressed `.genome` bundle while storing only the JSON and Parquet
 files needed for deterministic local search?
 
@@ -45,10 +45,10 @@ Build a standalone command-line executable separately with:
 
 ```sh
 ./prototype/build cli
-./dist/genome-explorer /path/to/sample.genome.tar.gz --serve
+./dist/offline-explorer /path/to/sample.genome.tar.gz --serve
 ```
 
-The prototype creates an ignored `.genome-explorer/` workspace. It never
+The prototype creates an ignored `.offline-explorer/` workspace. It never
 modifies the source archive and does not make network requests after the first
 prebuilt DuckDB package download.
 

@@ -2,7 +2,7 @@
 set -eu
 
 repo_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-runtime_dir="$repo_dir/.genome-explorer/build-venv"
+runtime_dir="$repo_dir/.offline-explorer/build-venv"
 
 if [ ! -x "$runtime_dir/bin/python" ]; then
   python3 -m venv "$runtime_dir"
@@ -21,7 +21,7 @@ case "${1:-cli}" in
     exec "$runtime_dir/bin/python" -m PyInstaller \
       --noconfirm \
       --clean \
-      --name genome-explorer-engine \
+      --name offline-explorer-engine \
       --paths "$repo_dir" \
       --hidden-import uuid \
       prototype/entrypoint.py
@@ -31,7 +31,7 @@ case "${1:-cli}" in
       --noconfirm \
       --clean \
       --onefile \
-      --name genome-explorer \
+      --name offline-explorer \
       --paths "$repo_dir" \
       --hidden-import uuid \
       prototype/entrypoint.py

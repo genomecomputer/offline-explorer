@@ -89,14 +89,14 @@ def _render(state: PrototypeState) -> None:
 
 def _workspace_root(app_mode: bool = False) -> Path:
     if app_mode and sys.platform == "darwin":
-        return Path.home() / "Library" / "Application Support" / "Genome Explorer" / "workspaces"
-    return Path.cwd() / ".genome-explorer" / "workspaces"
+        return Path.home() / "Library" / "Application Support" / "Offline Explorer" / "workspaces"
+    return Path.cwd() / ".offline-explorer" / "workspaces"
 
 
 def _show_macos_error(message: str) -> None:
     script = """
 on run argv
-  display alert "Genome Explorer" message (item 1 of argv) as critical buttons {"OK"} default button "OK"
+  display alert "Offline Explorer" message (item 1 of argv) as critical buttons {"OK"} default button "OK"
 end run
 """
     subprocess.run(
@@ -130,7 +130,7 @@ return POSIX path of selectedFile
 def _choose_archive() -> Optional[str]:
     if sys.platform == "darwin":
         return _choose_macos_archive()
-    raise RuntimeError("Open a bundle by passing its path to Genome Explorer.")
+    raise RuntimeError("Open a bundle by passing its path to Offline Explorer.")
 
 
 def run_tui(archive: str, force_validate: bool) -> None:

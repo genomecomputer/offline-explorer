@@ -1,6 +1,6 @@
 # AGENTS.md
 
-This file is the operating contract for agents and contributors working in Genome Explorer. Read it before planning or changing files. A more specific `AGENTS.md` may add rules for a subtree.
+This file is the operating contract for agents and contributors working in Offline Explorer. Read it before planning or changing files. A more specific `AGENTS.md` may add rules for a subtree.
 
 ## Mission
 
@@ -10,7 +10,7 @@ The product promise is:
 
 > Search and understand your downloaded genome privately, without uploading it or requiring AI.
 
-Genome Explorer is a viewer and query engine for information already recorded in a bundle. It is not a diagnostic service and must not create new health interpretations from raw genomic data.
+Offline Explorer is a viewer and query engine for information already recorded in a bundle. It is not a diagnostic service and must not create new health interpretations from raw genomic data.
 
 ## Product boundaries
 
@@ -53,7 +53,7 @@ Do not inspect a real bundle unless the user explicitly places it in scope. When
 - Validate archive structure, manifest entries, file sizes, and recorded hashes before querying a newly opened bundle.
 - Defend archive extraction against unsafe paths, links, special files, duplicate members, malformed headers, excessive expansion, and resource exhaustion.
 - Reuse cached validation only when the source archive identity and retained files still match the recorded receipt.
-- Workspace cleanup may target only directories created and positively identified by Genome Explorer.
+- Workspace cleanup may target only directories created and positively identified by Offline Explorer.
 
 ## Architecture
 
@@ -94,10 +94,10 @@ npm test
 Run Electron end-to-end tests with synthetic fixtures:
 
 ```sh
-GENOME_EXPLORER_TEST_BUNDLE=/absolute/path/to/sample.genome.tar.gz npm run test:e2e
+OFFLINE_EXPLORER_TEST_BUNDLE=/absolute/path/to/sample.genome.tar.gz npm run test:e2e
 ```
 
-`GENOME_EXPLORER_CURRENT_TEST_BUNDLE` and `GENOME_EXPLORER_CLINICAL_TEST_BUNDLE` enable the current-format and clinical fixture scenarios when those synthetic bundles are available.
+`OFFLINE_EXPLORER_CURRENT_TEST_BUNDLE` and `OFFLINE_EXPLORER_CLINICAL_TEST_BUNDLE` enable the current-format and clinical fixture scenarios when those synthetic bundles are available.
 
 The development launcher installs DuckDB from a prebuilt Python wheel. Do not compile DuckDB from source. Do not run `npm run package`, `npm run dist`, or the PyInstaller build merely to test ordinary source changes.
 
@@ -112,7 +112,7 @@ The development launcher installs DuckDB from a prebuilt Python wheel. Do not co
 - Run relevant Electron end-to-end coverage for user-facing changes.
 - Review the complete diff for genomic data, secrets, local absolute paths, and unrelated files before committing.
 - Do not manually edit generated artifacts or changelogs marked as generated.
-- Do not commit `.genome-explorer/`, `.electron-dist/`, `dist/`, `release/`, Playwright output, or dependency directories.
+- Do not commit `.offline-explorer/`, `.electron-dist/`, `dist/`, `release/`, Playwright output, or dependency directories.
 - Never add an agent as a commit co-author.
 - Never use the em dash character in authored content.
 

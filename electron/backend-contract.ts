@@ -8,7 +8,7 @@ interface BackendReadyPayload {
   desktop_token?: unknown;
 }
 
-export const BACKEND_READY_PREFIX = "GENOME_EXPLORER_READY ";
+export const BACKEND_READY_PREFIX = "OFFLINE_EXPLORER_READY ";
 
 export function parseBackendReady(line: string): BackendReady | null {
   if (!line.startsWith(BACKEND_READY_PREFIX)) return null;

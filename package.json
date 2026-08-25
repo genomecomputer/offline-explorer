@@ -1,5 +1,5 @@
 {
-  "name": "@genomecomputer/genome-explorer",
+  "name": "@genomecomputer/offline-explorer",
   "version": "0.1.0",
   "private": true,
   "description": "Private offline search for compatible .genome bundles",
@@ -24,8 +24,8 @@
     "typescript": "7.0.2"
   },
   "build": {
-    "appId": "org.genomecomputer.genome-explorer",
-    "productName": "Genome Explorer",
+    "appId": "org.genomecomputer.offline-explorer",
+    "productName": "Offline Explorer",
     "asar": true,
     "directories": {
       "output": "release"
@@ -36,7 +36,7 @@
     ],
     "extraResources": [
       {
-        "from": "dist/genome-explorer-engine",
+        "from": "dist/offline-explorer-engine",
         "to": "engine"
       }
     ],

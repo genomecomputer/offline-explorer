@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = path.resolve(scriptDirectory, "..");
-const runtimeDirectory = path.join(repositoryRoot, ".genome-explorer", "prototype-venv");
+const runtimeDirectory = path.join(repositoryRoot, ".offline-explorer", "prototype-venv");
 const python = process.platform === "win32"
   ? path.join(runtimeDirectory, "Scripts", "python.exe")
   : path.join(runtimeDirectory, "bin", "python");

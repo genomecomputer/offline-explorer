@@ -7,7 +7,7 @@ PAGE = r'''<!doctype html>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light">
   <link rel="icon" href="data:,">
-  <title>Genome Explorer</title>
+  <title>Offline Explorer</title>
   <style nonce="__NONCE__">
     :root {
       color-scheme: light;
@@ -618,7 +618,7 @@ PAGE = r'''<!doctype html>
         <span class="mark" aria-hidden="true">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 3c0 5 8 5 8 10s-8 5-8 8M16 3c0 5-8 5-8 10s8 5 8 8M8.8 7h6.4M8.8 17h6.4"/></svg>
         </span>
-        <span>Genome Explorer</span>
+        <span>Offline Explorer</span>
       </div>
       <div class="sidebar-context" id="sidebar-context" hidden>
         <nav class="sidebar-nav" aria-label="Explore this bundle">
@@ -664,7 +664,7 @@ PAGE = r'''<!doctype html>
     </header>
 
     <main class="welcome" id="welcome">
-      <p class="eyebrow">Welcome to Genome Explorer</p>
+      <p class="eyebrow">Welcome to Offline Explorer</p>
       <h1 id="welcome-title">Explore your genome bundle privately.</h1>
       <p class="lede" id="welcome-lede">Choose a compatible bundle to get started. It stays on this computer and is never uploaded.</p>
 
@@ -949,7 +949,7 @@ PAGE = r'''<!doctype html>
     const sidebarViewButtons = Array.from(document.querySelectorAll("[data-sidebar-view]"));
     const bundlesButton = document.querySelector("#bundles-button");
     const quitButton = document.querySelector("#quit-button");
-    const desktop = window.genomeExplorer?.desktop === true;
+    const desktop = window.offlineExplorer?.desktop === true;
     if (desktop) quitButton.hidden = true;
     let statusTimer = null;
     let explorerReady = false;
@@ -1541,7 +1541,7 @@ PAGE = r'''<!doctype html>
         explorer.hidden = true;
         chooseButton.disabled = false;
         chooseButton.textContent = "Try again";
-        showSelectionStatus("Genome Explorer could not check the local bundle status.", { error: true });
+        showSelectionStatus("Offline Explorer could not check the local bundle status.", { error: true });
       }
     }
 
@@ -2175,7 +2175,7 @@ PAGE = r'''<!doctype html>
       savedFeedback.textContent = "";
       control.disabled = true;
       try {
-        const result = await window.genomeExplorer.exportSaved(format);
+        const result = await window.offlineExplorer.exportSaved(format);
         if (result.saved) savedFeedback.textContent = `Exported ${result.file_name}.`;
       } catch (error) {
         savedFeedback.textContent = error.message || "Saved results could not be exported.";
@@ -2847,7 +2847,7 @@ PAGE = r'''<!doctype html>
       showSelectionStatus("Opening the local file selector.", { busy: true });
       try {
         const status = desktop
-          ? await window.genomeExplorer.chooseBundle()
+          ? await window.offlineExplorer.chooseBundle()
           : await postJson("/api/select");
         renderAppStatus(status);
         if (status.status === "choosing" || status.status === "validating") scheduleStatusPoll(150);
@@ -2858,7 +2858,7 @@ PAGE = r'''<!doctype html>
       }
     });
     if (desktop) {
-      window.genomeExplorer.onChooseBundleRequested(() => chooseButton.click());
+      window.offlineExplorer.onChooseBundleRequested(() => chooseButton.click());
     }
 
     bundlesButton.addEventListener("click", async () => {
@@ -2878,12 +2878,12 @@ PAGE = r'''<!doctype html>
       quitButton.textContent = "Stopping";
       try {
         if (desktop) {
-          await window.genomeExplorer.quit();
+          await window.offlineExplorer.quit();
         } else {
           await fetch(`${basePath}/api/shutdown`, { method: "POST" });
         }
       } finally {
-        document.body.innerHTML = '<main class="shell"><p class="eyebrow">Genome Explorer stopped</p><h1>Your local session has ended.</h1><p class="lede">You can close this tab. Your source bundle was not modified.</p></main>';
+        document.body.innerHTML = '<main class="shell"><p class="eyebrow">Offline Explorer stopped</p><h1>Your local session has ended.</h1><p class="lede">You can close this tab. Your source bundle was not modified.</p></main>';
       }
     });
 

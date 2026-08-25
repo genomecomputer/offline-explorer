@@ -468,7 +468,7 @@ class LocalExplorerHandler(BaseHTTPRequestHandler):
             return
         path = urlsplit(self.path).path.rstrip("/")
         if path == self.server.base_path + "/api/desktop/open":
-            supplied_token = self.headers.get("X-Genome-Explorer-Desktop", "")
+            supplied_token = self.headers.get("X-Offline-Explorer-Desktop", "")
             if not secrets.compare_digest(supplied_token, self.server.desktop_token):
                 self._reject(403)
                 return
@@ -549,7 +549,7 @@ class LocalExplorerHandler(BaseHTTPRequestHandler):
                 self._send_json(400, {"error": str(error)})
             return
         if path == self.server.base_path + "/api/saved/export":
-            supplied_token = self.headers.get("X-Genome-Explorer-Desktop", "")
+            supplied_token = self.headers.get("X-Offline-Explorer-Desktop", "")
             if not secrets.compare_digest(supplied_token, self.server.desktop_token):
                 self._reject(403)
                 return
@@ -636,7 +636,7 @@ def _run_server(
 ) -> None:
     if desktop_backend:
         print(
-            "GENOME_EXPLORER_READY "
+            "OFFLINE_EXPLORER_READY "
             + json.dumps(
                 {
                     "url": server.url,
@@ -647,7 +647,7 @@ def _run_server(
             flush=True,
         )
     else:
-        print("Genome Explorer ready: %s" % server.url, flush=True)
+        print("Offline Explorer ready: %s" % server.url, flush=True)
         print("Press Ctrl-C to stop.", flush=True)
     if open_browser:
         threading.Timer(0.2, webbrowser.open, args=(server.url,)).start()

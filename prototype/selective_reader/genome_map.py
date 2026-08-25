@@ -9,7 +9,7 @@ import duckdb
 
 
 BIN_SIZE_BASES = 10_000_000
-MAP_CACHE_FILENAME = ".genome-explorer-map-v2.json"
+MAP_CACHE_FILENAME = ".offline-explorer-map-v2.json"
 MAP_CACHE_VERSION = 2
 GRCH38_CHROMOSOMES: Tuple[Tuple[str, str, int], ...] = (
     ("chr1", "1", 248956422),

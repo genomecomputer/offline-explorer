@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from "electron";
 
-contextBridge.exposeInMainWorld("genomeExplorer", {
+contextBridge.exposeInMainWorld("offlineExplorer", {
   desktop: true,
   chooseBundle: () => ipcRenderer.invoke("genome:choose-bundle"),
   exportSaved: (format: "json" | "csv") => ipcRenderer.invoke("genome:export-saved", format),

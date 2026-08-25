@@ -4,9 +4,9 @@ import os from "node:os";
 import path from "node:path";
 
 const repositoryRoot = path.resolve(__dirname, "..");
-const sampleBundle = process.env.GENOME_EXPLORER_TEST_BUNDLE;
-const clinicalBundle = process.env.GENOME_EXPLORER_CLINICAL_TEST_BUNDLE;
-const currentBundle = process.env.GENOME_EXPLORER_CURRENT_TEST_BUNDLE;
+const sampleBundle = process.env.OFFLINE_EXPLORER_TEST_BUNDLE;
+const clinicalBundle = process.env.OFFLINE_EXPLORER_CLINICAL_TEST_BUNDLE;
+const currentBundle = process.env.OFFLINE_EXPLORER_CURRENT_TEST_BUNDLE;
 
 function processIsAlive(pid: number): boolean {
   try {
@@ -27,20 +27,20 @@ async function waitForProcessExit(pid: number): Promise<void> {
 }
 
 test("opens, searches, reuses a bundle, and owns engine shutdown", async () => {
-  test.skip(!sampleBundle || !existsSync(sampleBundle), "Set GENOME_EXPLORER_TEST_BUNDLE to a synthetic bundle.");
+  test.skip(!sampleBundle || !existsSync(sampleBundle), "Set OFFLINE_EXPLORER_TEST_BUNDLE to a synthetic bundle.");
 
-  const userData = mkdtempSync(path.join(os.tmpdir(), "genome-explorer-electron-"));
+  const userData = mkdtempSync(path.join(os.tmpdir(), "offline-explorer-electron-"));
   const pidFile = path.join(userData, "engine.pid");
   const exportDirectory = path.join(userData, "exports");
   mkdirSync(exportDirectory);
   const environment = {
     ...process.env,
-    GENOME_EXPLORER_TEST_BUNDLE: sampleBundle,
-    GENOME_EXPLORER_TEST_PID_FILE: pidFile,
-    GENOME_EXPLORER_USER_DATA: userData,
-    GENOME_EXPLORER_TEST_EXPORT_DIR: exportDirectory,
+    OFFLINE_EXPLORER_TEST_BUNDLE: sampleBundle,
+    OFFLINE_EXPLORER_TEST_PID_FILE: pidFile,
+    OFFLINE_EXPLORER_USER_DATA: userData,
+    OFFLINE_EXPLORER_TEST_EXPORT_DIR: exportDirectory,
   };
-  const executablePath = process.env.GENOME_EXPLORER_EXECUTABLE;
+  const executablePath = process.env.OFFLINE_EXPLORER_EXECUTABLE;
   const launchOptions = executablePath
     ? { executablePath, args: [] as string[], cwd: repositoryRoot, env: environment }
     : { args: [repositoryRoot], cwd: repositoryRoot, env: environment };
@@ -54,10 +54,10 @@ test("opens, searches, reuses a bundle, and owns engine shutdown", async () => {
     await expect(firstWindow.getByText("Stays on this computer", { exact: true })).toHaveCount(0);
     await expect(firstWindow.locator("#quit-button")).toBeHidden();
     await expect(firstWindow.locator("#sidebar-context")).toBeHidden();
-    if (process.env.GENOME_EXPLORER_SCREENSHOT_DIR) {
-      mkdirSync(process.env.GENOME_EXPLORER_SCREENSHOT_DIR, { recursive: true });
+    if (process.env.OFFLINE_EXPLORER_SCREENSHOT_DIR) {
+      mkdirSync(process.env.OFFLINE_EXPLORER_SCREENSHOT_DIR, { recursive: true });
       await firstWindow.screenshot({
-        path: path.join(process.env.GENOME_EXPLORER_SCREENSHOT_DIR, "welcome.png"),
+        path: path.join(process.env.OFFLINE_EXPLORER_SCREENSHOT_DIR, "welcome.png"),
       });
     }
 
@@ -86,9 +86,9 @@ test("opens, searches, reuses a bundle, and owns engine shutdown", async () => {
     await expect(firstWindow.locator("#region-gene-track").getByRole("button", { name: "CYP2C19" })).toBeVisible();
     await expect(firstWindow.locator("#region-variants-meta")).toContainText("recorded variants");
     await expect(firstWindow.locator("#region-records-content .record-row").first()).toBeVisible();
-    if (process.env.GENOME_EXPLORER_SCREENSHOT_DIR) {
+    if (process.env.OFFLINE_EXPLORER_SCREENSHOT_DIR) {
       await firstWindow.screenshot({
-        path: path.join(process.env.GENOME_EXPLORER_SCREENSHOT_DIR, "region-browser.png"),
+        path: path.join(process.env.OFFLINE_EXPLORER_SCREENSHOT_DIR, "region-browser.png"),
         fullPage: true,
       });
       const regionViewport = await firstWindow.evaluate(() => ({
@@ -97,7 +97,7 @@ test("opens, searches, reuses a bundle, and owns engine shutdown", async () => {
       }));
       await firstWindow.setViewportSize({ width: 700, height: 900 });
       await firstWindow.screenshot({
-        path: path.join(process.env.GENOME_EXPLORER_SCREENSHOT_DIR, "region-browser-narrow.png"),
+        path: path.join(process.env.OFFLINE_EXPLORER_SCREENSHOT_DIR, "region-browser-narrow.png"),
         fullPage: true,
       });
       await firstWindow.setViewportSize(regionViewport);
@@ -119,9 +119,9 @@ test("opens, searches, reuses a bundle, and owns engine shutdown", async () => {
     await expect(firstWindow.getByRole("tab", { name: /Personal results/ })).toHaveAttribute("aria-selected", "true");
     await expect(firstWindow.locator(".directory-row").first()).toBeVisible();
     await expect(firstWindow).toHaveURL(/#personal$/);
-    if (process.env.GENOME_EXPLORER_SCREENSHOT_DIR) {
+    if (process.env.OFFLINE_EXPLORER_SCREENSHOT_DIR) {
       await firstWindow.screenshot({
-        path: path.join(process.env.GENOME_EXPLORER_SCREENSHOT_DIR, "topic-library.png"),
+        path: path.join(process.env.OFFLINE_EXPLORER_SCREENSHOT_DIR, "topic-library.png"),
         fullPage: true,
       });
     }
@@ -147,9 +147,9 @@ test("opens, searches, reuses a bundle, and owns engine shutdown", async () => {
     const lactoseTopic = firstWindow.getByRole("button", { name: "Search this bundle for Lactose intolerance" });
     await expect(lactoseTopic.locator(".topic-indicator")).toHaveClass(/no-data/);
     await expect(lactoseTopic.locator(".topic-indicator-value")).toHaveText("No matching record");
-    if (process.env.GENOME_EXPLORER_SCREENSHOT_DIR) {
+    if (process.env.OFFLINE_EXPLORER_SCREENSHOT_DIR) {
       await firstWindow.screenshot({
-        path: path.join(process.env.GENOME_EXPLORER_SCREENSHOT_DIR, "topic-answerability.png"),
+        path: path.join(process.env.OFFLINE_EXPLORER_SCREENSHOT_DIR, "topic-answerability.png"),
         fullPage: true,
       });
     }
@@ -198,9 +198,9 @@ test("opens, searches, reuses a bundle, and owns engine shutdown", async () => {
     await expect(relatedPagination.locator(".pagination-range")).toHaveText("1-10 of 25");
     await expect(firstWindow.getByText("Research sources")).toBeVisible();
     await expect(firstWindow.getByText(/has not been presented as a match/)).toHaveCount(0);
-    if (process.env.GENOME_EXPLORER_SCREENSHOT_DIR) {
+    if (process.env.OFFLINE_EXPLORER_SCREENSHOT_DIR) {
       await firstWindow.screenshot({
-        path: path.join(process.env.GENOME_EXPLORER_SCREENSHOT_DIR, "person-linked-topic.png"),
+        path: path.join(process.env.OFFLINE_EXPLORER_SCREENSHOT_DIR, "person-linked-topic.png"),
         fullPage: true,
       });
       const desktopViewport = await firstWindow.evaluate(() => ({
@@ -210,7 +210,7 @@ test("opens, searches, reuses a bundle, and owns engine shutdown", async () => {
       await firstWindow.setViewportSize({ width: 700, height: 900 });
       await expect(firstWindow.locator(".section-trait_variants .record-list-head")).toBeHidden();
       await firstWindow.screenshot({
-        path: path.join(process.env.GENOME_EXPLORER_SCREENSHOT_DIR, "person-linked-topic-narrow.png"),
+        path: path.join(process.env.OFFLINE_EXPLORER_SCREENSHOT_DIR, "person-linked-topic-narrow.png"),
         fullPage: true,
       });
       await firstWindow.setViewportSize(desktopViewport);
@@ -226,9 +226,9 @@ test("opens, searches, reuses a bundle, and owns engine shutdown", async () => {
       "href",
       /pubmed\.ncbi\.nlm\.nih\.gov\/\d+\/$/,
     );
-    if (process.env.GENOME_EXPLORER_SCREENSHOT_DIR) {
+    if (process.env.OFFLINE_EXPLORER_SCREENSHOT_DIR) {
       await firstWindow.screenshot({
-        path: path.join(process.env.GENOME_EXPLORER_SCREENSHOT_DIR, "supporting-research.png"),
+        path: path.join(process.env.OFFLINE_EXPLORER_SCREENSHOT_DIR, "supporting-research.png"),
         fullPage: true,
       });
     }
@@ -259,9 +259,9 @@ test("opens, searches, reuses a bundle, and owns engine shutdown", async () => {
     const pgxCard = firstWindow.locator(".section-pharmacogenomics .card").first();
     await pgxCard.getByRole("button", { name: /Save CYP2C19/ }).click();
     await expect(pgxCard.getByRole("button", { name: /Saved CYP2C19/ })).toBeVisible();
-    if (process.env.GENOME_EXPLORER_SCREENSHOT_DIR) {
+    if (process.env.OFFLINE_EXPLORER_SCREENSHOT_DIR) {
       await firstWindow.screenshot({
-        path: path.join(process.env.GENOME_EXPLORER_SCREENSHOT_DIR, "search-results.png"),
+        path: path.join(process.env.OFFLINE_EXPLORER_SCREENSHOT_DIR, "search-results.png"),
         fullPage: true,
       });
     }
@@ -288,9 +288,9 @@ test("opens, searches, reuses a bundle, and owns engine shutdown", async () => {
     expect(readFileSync(csvExportPath, "utf8")).not.toContain("saved_id");
     expect(readFileSync(csvExportPath, "utf8")).toContain("gene_symbol");
     expect(readFileSync(csvExportPath, "utf8")).toContain("CYP2C19");
-    if (process.env.GENOME_EXPLORER_SCREENSHOT_DIR) {
+    if (process.env.OFFLINE_EXPLORER_SCREENSHOT_DIR) {
       await firstWindow.screenshot({
-        path: path.join(process.env.GENOME_EXPLORER_SCREENSHOT_DIR, "saved-results.png"),
+        path: path.join(process.env.OFFLINE_EXPLORER_SCREENSHOT_DIR, "saved-results.png"),
         fullPage: true,
       });
     }
@@ -368,9 +368,9 @@ test("opens, searches, reuses a bundle, and owns engine shutdown", async () => {
     await expect(secondWindow.getByRole("heading", { name: "Choose a genome bundle." })).toBeVisible();
     await expect(secondWindow.locator(".bundle-item")).toHaveCount(1);
     await expect(secondWindow.locator(".bundle-meta").first()).toContainText("Genome spec v1.0.0");
-    if (process.env.GENOME_EXPLORER_SCREENSHOT_DIR) {
+    if (process.env.OFFLINE_EXPLORER_SCREENSHOT_DIR) {
       await secondWindow.screenshot({
-        path: path.join(process.env.GENOME_EXPLORER_SCREENSHOT_DIR, "bundle-library.png"),
+        path: path.join(process.env.OFFLINE_EXPLORER_SCREENSHOT_DIR, "bundle-library.png"),
         fullPage: true,
       });
     }
@@ -381,9 +381,9 @@ test("opens, searches, reuses a bundle, and owns engine shutdown", async () => {
     await expect(secondWindow.locator(".saved-result-row")).toHaveCount(1);
     const savedRow = secondWindow.locator(".saved-result-row").first();
     await savedRow.locator(":scope > summary").click();
-    if (process.env.GENOME_EXPLORER_SCREENSHOT_DIR) {
+    if (process.env.OFFLINE_EXPLORER_SCREENSHOT_DIR) {
       await secondWindow.screenshot({
-        path: path.join(process.env.GENOME_EXPLORER_SCREENSHOT_DIR, "saved-results-expanded.png"),
+        path: path.join(process.env.OFFLINE_EXPLORER_SCREENSHOT_DIR, "saved-results-expanded.png"),
         fullPage: true,
       });
     }
@@ -403,17 +403,17 @@ test("opens, searches, reuses a bundle, and owns engine shutdown", async () => {
 });
 
 test("shows clinical-grade findings with person calls and ClinVar evidence", async () => {
-  test.skip(!clinicalBundle || !existsSync(clinicalBundle), "Set GENOME_EXPLORER_CLINICAL_TEST_BUNDLE to a synthetic v1.1 bundle.");
+  test.skip(!clinicalBundle || !existsSync(clinicalBundle), "Set OFFLINE_EXPLORER_CLINICAL_TEST_BUNDLE to a synthetic v1.1 bundle.");
 
-  const userData = mkdtempSync(path.join(os.tmpdir(), "genome-explorer-clinical-"));
+  const userData = mkdtempSync(path.join(os.tmpdir(), "offline-explorer-clinical-"));
   const pidFile = path.join(userData, "engine.pid");
   const environment = {
     ...process.env,
-    GENOME_EXPLORER_TEST_BUNDLE: clinicalBundle,
-    GENOME_EXPLORER_TEST_PID_FILE: pidFile,
-    GENOME_EXPLORER_USER_DATA: userData,
+    OFFLINE_EXPLORER_TEST_BUNDLE: clinicalBundle,
+    OFFLINE_EXPLORER_TEST_PID_FILE: pidFile,
+    OFFLINE_EXPLORER_USER_DATA: userData,
   };
-  const executablePath = process.env.GENOME_EXPLORER_EXECUTABLE;
+  const executablePath = process.env.OFFLINE_EXPLORER_EXECUTABLE;
   const launchOptions = executablePath
     ? { executablePath, args: [] as string[], cwd: repositoryRoot, env: environment }
     : { args: [repositoryRoot], cwd: repositoryRoot, env: environment };
@@ -444,10 +444,10 @@ test("shows clinical-grade findings with person calls and ClinVar evidence", asy
     );
     await expect(section.getByText(/Conflicting ClinVar submissions/)).toBeVisible();
 
-    if (process.env.GENOME_EXPLORER_SCREENSHOT_DIR) {
-      mkdirSync(process.env.GENOME_EXPLORER_SCREENSHOT_DIR, { recursive: true });
+    if (process.env.OFFLINE_EXPLORER_SCREENSHOT_DIR) {
+      mkdirSync(process.env.OFFLINE_EXPLORER_SCREENSHOT_DIR, { recursive: true });
       await window.screenshot({
-        path: path.join(process.env.GENOME_EXPLORER_SCREENSHOT_DIR, "clinical-findings.png"),
+        path: path.join(process.env.OFFLINE_EXPLORER_SCREENSHOT_DIR, "clinical-findings.png"),
         fullPage: true,
       });
     }
@@ -463,17 +463,17 @@ test("shows clinical-grade findings with person calls and ClinVar evidence", asy
 });
 
 test("opens and searches a current v1.1 bundle", async () => {
-  test.skip(!currentBundle || !existsSync(currentBundle), "Set GENOME_EXPLORER_CURRENT_TEST_BUNDLE to a synthetic v1.1 bundle.");
+  test.skip(!currentBundle || !existsSync(currentBundle), "Set OFFLINE_EXPLORER_CURRENT_TEST_BUNDLE to a synthetic v1.1 bundle.");
 
-  const userData = mkdtempSync(path.join(os.tmpdir(), "genome-explorer-current-"));
+  const userData = mkdtempSync(path.join(os.tmpdir(), "offline-explorer-current-"));
   const pidFile = path.join(userData, "engine.pid");
   const environment = {
     ...process.env,
-    GENOME_EXPLORER_TEST_BUNDLE: currentBundle,
-    GENOME_EXPLORER_TEST_PID_FILE: pidFile,
-    GENOME_EXPLORER_USER_DATA: userData,
+    OFFLINE_EXPLORER_TEST_BUNDLE: currentBundle,
+    OFFLINE_EXPLORER_TEST_PID_FILE: pidFile,
+    OFFLINE_EXPLORER_USER_DATA: userData,
   };
-  const executablePath = process.env.GENOME_EXPLORER_EXECUTABLE;
+  const executablePath = process.env.OFFLINE_EXPLORER_EXECUTABLE;
   const launchOptions = executablePath
     ? { executablePath, args: [] as string[], cwd: repositoryRoot, env: environment }
     : { args: [repositoryRoot], cwd: repositoryRoot, env: environment };
@@ -492,9 +492,9 @@ test("opens and searches a current v1.1 bundle", async () => {
     await window.getByRole("tab", { name: /Medications/ }).click();
     const clopidogrelTopic = window.getByRole("button", { name: "Search this bundle for Clopidogrel" });
     await expect(clopidogrelTopic.locator(".topic-indicator-value")).toHaveText("Analysis not included");
-    if (process.env.GENOME_EXPLORER_SCREENSHOT_DIR) {
+    if (process.env.OFFLINE_EXPLORER_SCREENSHOT_DIR) {
       await window.screenshot({
-        path: path.join(process.env.GENOME_EXPLORER_SCREENSHOT_DIR, "topic-analysis-not-included.png"),
+        path: path.join(process.env.OFFLINE_EXPLORER_SCREENSHOT_DIR, "topic-analysis-not-included.png"),
         fullPage: true,
       });
     }
@@ -541,9 +541,9 @@ test("opens and searches a current v1.1 bundle", async () => {
     await expect(window.locator("#results-title")).toHaveText("Not enough bundle data");
     await expect(window.locator("#result-meta")).toHaveText("Search: chr6:1");
     await expect(window.locator("#result-notice-text")).toContainText("so it remains unresolved");
-    if (process.env.GENOME_EXPLORER_SCREENSHOT_DIR) {
+    if (process.env.OFFLINE_EXPLORER_SCREENSHOT_DIR) {
       await window.screenshot({
-        path: path.join(process.env.GENOME_EXPLORER_SCREENSHOT_DIR, "answerability-unresolved.png"),
+        path: path.join(process.env.OFFLINE_EXPLORER_SCREENSHOT_DIR, "answerability-unresolved.png"),
       });
     }
 

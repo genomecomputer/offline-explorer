@@ -6,7 +6,7 @@ import { isTrustedBackendUrl, parseBackendReady } from "./backend-contract";
 test("accepts a private authenticated backend address", () => {
   assert.deepEqual(
     parseBackendReady(
-      'GENOME_EXPLORER_READY {"url":"http://127.0.0.1:43123/session_token/","desktop_token":"abcdefghijklmnopqrstuvwxyz1234567890"}',
+      'OFFLINE_EXPLORER_READY {"url":"http://127.0.0.1:43123/session_token/","desktop_token":"abcdefghijklmnopqrstuvwxyz1234567890"}',
     ),
     {
       url: "http://127.0.0.1:43123/session_token/",
@@ -18,12 +18,12 @@ test("accepts a private authenticated backend address", () => {
 test("rejects non-loopback and malformed backend addresses", () => {
   assert.throws(() =>
     parseBackendReady(
-      'GENOME_EXPLORER_READY {"url":"https://example.com/session/","desktop_token":"abcdefghijklmnopqrstuvwxyz1234567890"}',
+      'OFFLINE_EXPLORER_READY {"url":"https://example.com/session/","desktop_token":"abcdefghijklmnopqrstuvwxyz1234567890"}',
     ),
   );
   assert.throws(() =>
     parseBackendReady(
-      'GENOME_EXPLORER_READY {"url":"http://localhost:43123/session/","desktop_token":"abcdefghijklmnopqrstuvwxyz1234567890"}',
+      'OFFLINE_EXPLORER_READY {"url":"http://localhost:43123/session/","desktop_token":"abcdefghijklmnopqrstuvwxyz1234567890"}',
     ),
   );
 });

@@ -1,1 +1,1 @@
-"""Throwaway Genome Explorer prototypes."""
+"""Throwaway Offline Explorer prototypes."""

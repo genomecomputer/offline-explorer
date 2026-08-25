@@ -28,16 +28,16 @@ let backendReady: BackendReady | null = null;
 let mainWindow: BrowserWindow | null = null;
 let isQuitting = false;
 
-app.setName("Genome Explorer");
-if (process.env.GENOME_EXPLORER_USER_DATA) {
-  app.setPath("userData", path.resolve(process.env.GENOME_EXPLORER_USER_DATA));
+app.setName("Offline Explorer");
+if (process.env.OFFLINE_EXPLORER_USER_DATA) {
+  app.setPath("userData", path.resolve(process.env.OFFLINE_EXPLORER_USER_DATA));
 }
 
 function backendExecutable(): { command: string; args: string[]; cwd: string } {
   if (app.isPackaged) {
     const executable = process.platform === "win32"
-      ? "genome-explorer-engine.exe"
-      : "genome-explorer-engine";
+      ? "offline-explorer-engine.exe"
+      : "offline-explorer-engine";
     return {
       command: path.join(process.resourcesPath, "engine", executable),
       args: [],
@@ -77,8 +77,8 @@ function startBackend(): Promise<BackendReady> {
   backendProcess = child;
   child.stderr.resume();
 
-  if (process.env.GENOME_EXPLORER_TEST_PID_FILE) {
-    writeFileSync(process.env.GENOME_EXPLORER_TEST_PID_FILE, `${child.pid}\n`, {
+  if (process.env.OFFLINE_EXPLORER_TEST_PID_FILE) {
+    writeFileSync(process.env.OFFLINE_EXPLORER_TEST_PID_FILE, `${child.pid}\n`, {
       encoding: "utf8",
       mode: 0o600,
     });
@@ -111,9 +111,9 @@ function startBackend(): Promise<BackendReady> {
         backendReady = null;
         void dialog.showMessageBox({
           type: "error",
-          title: "Genome Explorer",
+          title: "Offline Explorer",
           message: "The local genome engine stopped unexpectedly.",
-          detail: "Close and reopen Genome Explorer to continue.",
+          detail: "Close and reopen Offline Explorer to continue.",
         });
       }
     });
@@ -143,7 +143,7 @@ async function backendRequest(
   const origin = new URL(backendReady.url).origin;
   const headers: Record<string, string> = { Origin: origin };
   if (options.payload) headers["Content-Type"] = "application/json";
-  if (options.desktop) headers["X-Genome-Explorer-Desktop"] = backendReady.desktopToken;
+  if (options.desktop) headers["X-Offline-Explorer-Desktop"] = backendReady.desktopToken;
   const response = await fetch(endpoint, {
     method: options.method ?? "GET",
     headers,
@@ -158,16 +158,16 @@ async function backendRequest(
 
 function assertTrustedSender(url: string): void {
   if (!backendReady || !isTrustedBackendUrl(url, backendReady.url)) {
-    throw new Error("The desktop request did not come from Genome Explorer.");
+    throw new Error("The desktop request did not come from Offline Explorer.");
   }
 }
 
 async function chooseBundle(): Promise<Record<string, unknown>> {
-  if (!mainWindow) throw new Error("The Genome Explorer window is unavailable.");
+  if (!mainWindow) throw new Error("The Offline Explorer window is unavailable.");
 
   let archive: string | undefined;
-  if (process.env.GENOME_EXPLORER_TEST_BUNDLE) {
-    archive = path.resolve(process.env.GENOME_EXPLORER_TEST_BUNDLE);
+  if (process.env.OFFLINE_EXPLORER_TEST_BUNDLE) {
+    archive = path.resolve(process.env.OFFLINE_EXPLORER_TEST_BUNDLE);
   } else {
     const selection = await dialog.showOpenDialog(mainWindow, {
       title: "Add a genome bundle",
@@ -200,7 +200,7 @@ async function chooseBundle(): Promise<Record<string, unknown>> {
 }
 
 async function exportSavedResults(format: "json" | "csv"): Promise<Record<string, unknown>> {
-  if (!mainWindow) throw new Error("The Genome Explorer window is unavailable.");
+  if (!mainWindow) throw new Error("The Offline Explorer window is unavailable.");
   const exported = await backendRequest("api/saved/export", {
     method: "POST",
     payload: { format },
@@ -217,8 +217,8 @@ async function exportSavedResults(format: "json" | "csv"): Promise<Record<string
   }
 
   let filePath: string | undefined;
-  if (process.env.GENOME_EXPLORER_TEST_EXPORT_DIR) {
-    const exportDirectory = path.resolve(process.env.GENOME_EXPLORER_TEST_EXPORT_DIR);
+  if (process.env.OFFLINE_EXPLORER_TEST_EXPORT_DIR) {
+    const exportDirectory = path.resolve(process.env.OFFLINE_EXPLORER_TEST_EXPORT_DIR);
     mkdirSync(exportDirectory, { recursive: true });
     filePath = path.join(exportDirectory, fileName);
   } else {
@@ -294,7 +294,7 @@ function loadingPage(message: string): string {
   return `data:text/html;charset=utf-8,${encodeURIComponent(`<!doctype html>
     <html><head><meta charset="utf-8"><meta name="color-scheme" content="light">
     <style>html,body{height:100%;margin:0}body{display:grid;place-items:center;background:#f6f8f5;color:#17211d;font:16px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.card{text-align:center}.mark{width:46px;height:46px;margin:0 auto 20px;border-radius:14px;background:#153d2f;color:white;display:grid;place-items:center;font-size:22px}.muted{color:#65716c}</style>
-    </head><body><main class="card"><div class="mark">G</div><h1>Genome Explorer</h1><p class="muted">${message}</p></main></body></html>`)}`;
+    </head><body><main class="card"><div class="mark">O</div><h1>Offline Explorer</h1><p class="muted">${message}</p></main></body></html>`)}`;
 }
 
 async function confirmExternalReference(url: string): Promise<void> {
@@ -328,7 +328,7 @@ async function createWindow(): Promise<void> {
     minHeight: 640,
     show: false,
     backgroundColor: "#f6f8f5",
-    title: "Genome Explorer",
+    title: "Offline Explorer",
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -407,8 +407,8 @@ if (!singleInstance) {
   }).catch(async () => {
     await dialog.showMessageBox({
       type: "error",
-      title: "Genome Explorer",
-      message: "Genome Explorer could not start.",
+      title: "Offline Explorer",
+      message: "Offline Explorer could not start.",
     });
     app.quit();
   });

@@ -2,7 +2,7 @@
 set -eu
 
 repo_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-runtime_dir="$repo_dir/.genome-explorer/prototype-venv"
+runtime_dir="$repo_dir/.offline-explorer/prototype-venv"
 
 if [ ! -x "$runtime_dir/bin/python" ]; then
   python3 -m venv "$runtime_dir"

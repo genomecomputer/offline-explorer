@@ -1,19 +1,59 @@
-# Genome Explorer
+<p align="center">
+  <img src="assets/app-icon.png" width="128" alt="Offline Explorer app icon">
+</p>
 
-Genome Explorer is a private desktop application for browsing compatible `.genome` bundles. It runs deterministic local queries without uploading genomic data or requiring an account, API key, or AI service.
+<h1 align="center">Offline Explorer</h1>
 
-The application presents information already recorded in a bundle. It is a viewer and query engine, not a diagnostic or interpretation service.
+<p align="center">
+  <strong>Private, local exploration for <code>.genome</code> bundles.</strong>
+</p>
 
-Genome Explorer is developed by [Genome Computer](https://genome.computer), a company focused on making whole-genome data accessible and privately explorable. It reads `.genome` bundles, an open, self-describing format that packages variants, annotations, evidence, provenance, and coverage information into structured, queryable files. The public [`.genome` specification](https://github.com/genome-computer/genome-spec) defines the format and includes its schema, reference tools, and synthetic examples.
+<p align="center">
+  <a href="https://github.com/genomecomputer/genome-explorer/releases"><img alt="GitHub release" src="https://img.shields.io/github/v/release/genomecomputer/genome-explorer?include_prereleases&label=release"></a>
+  <a href="LICENSE"><img alt="Apache 2.0 license" src="https://img.shields.io/badge/license-Apache%202.0-blue.svg"></a>
+  <img alt="macOS on Apple silicon" src="https://img.shields.io/badge/macOS-Apple%20silicon-black.svg">
+</p>
 
-## What it includes
+<p align="center">
+  <a href="https://github.com/genomecomputer/genome-explorer/releases">Download</a>
+  ·
+  <a href="https://github.com/genome-computer/genome-spec"><code>.genome</code> specification</a>
+  ·
+  <a href="AGENTS.md">Contributing</a>
+</p>
 
-- A native Electron desktop application with bundle selection and local engine lifecycle management.
-- A reusable local bundle library with validation, cached workspaces, friendly names, and recent-bundle handling.
-- Search across genes, rsIDs, genomic coordinates, medications, conditions, traits, and reviewed topic terms.
-- Clear result states for recorded findings, missing matches, analyses not included in the bundle, unavailable data, and non-callable positions.
-- Dedicated views for personal results, medications, conditions, traits, clinical findings, pharmacogenomics, polygenic scores, research associations, and raw variants.
-- An advanced region browser with genomic tracks, callability context, coverage information, and bounded pagination.
-- Bundle-scoped saved results with notes and JSON or CSV export.
+Offline Explorer is an open-source desktop application for browsing compatible `.genome` bundles. It makes the information in a bundle accessible through deterministic local queries without uploading genomic data or requiring an account, API key, AI service, telemetry, or network connection.
 
-Contributor setup, verification commands, fixture requirements, architecture rules, and genomic-data safety guidance are documented in [AGENTS.md](AGENTS.md).
+## Features
+
+- Search genes, rsIDs, genomic coordinates, medications, conditions, traits, and reviewed topics.
+- Browse personal results, clinical findings, pharmacogenomics, polygenic scores, research associations, and raw variants.
+- Distinguish recorded findings from missing matches, unavailable analyses, and non-callable positions.
+- Explore genomic regions with variant tracks, callability context, coverage information, and bounded pagination.
+- Save bundle-specific results with notes and export them as JSON or CSV.
+
+## Download
+
+Preview builds for macOS on Apple silicon are available from [GitHub Releases](https://github.com/genomecomputer/genome-explorer/releases).
+
+## The `.genome` bundle
+
+Offline Explorer reads [`.genome` bundles](https://github.com/genome-computer/genome-spec), the open, self-describing format developed by [Genome Computer](https://genome.computer) for structured, queryable genomic data. A bundle brings variants, annotations, evidence, provenance, and coverage information together so the data is accessible to compatible tools.
+
+## Contributing
+
+Contributor setup, development commands, architecture guidance, and genomic-data safety requirements are documented in [AGENTS.md](AGENTS.md).
+
+## License
+
+Offline Explorer is available under the [Apache License 2.0](LICENSE).
+
+<p align="center">
+  <a href="https://genome.computer">
+    <img src="assets/genome-computer-sunflower.png" width="48" alt="Genome Computer sunflower">
+  </a>
+</p>
+
+<p align="center">
+  An open-source project from <a href="https://genome.computer"><strong>Genome Computer</strong></a>.
+</p>

@@ -35,7 +35,7 @@ class DesktopServerTest(unittest.TestCase):
             "Origin": self.server.origin,
         }
         if desktop_token is not None:
-            headers["X-Genome-Explorer-Desktop"] = desktop_token
+            headers["X-Offline-Explorer-Desktop"] = desktop_token
         connection.request(
             "POST",
             self.server.base_path + "/api/desktop/open",

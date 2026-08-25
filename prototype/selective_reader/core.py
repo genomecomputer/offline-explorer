@@ -262,7 +262,7 @@ def open_bundle(
     schema_version = manifest.get("schema_version")
     if not _supports_schema_version(schema_version):
         raise ValueError(
-            "unsupported schema version: %r; Genome Explorer supports v1.x bundles"
+            "unsupported schema version: %r; Offline Explorer supports v1.x bundles"
             % schema_version
         )
 

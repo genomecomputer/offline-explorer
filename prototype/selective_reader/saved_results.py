@@ -98,15 +98,21 @@ def _csv_value(value: Any) -> str:
         return ""
     if isinstance(value, bool):
         return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return str(value)
     if isinstance(value, (list, dict)):
-        return json.dumps(
+        text = json.dumps(
             value,
             sort_keys=True,
             separators=(",", ":"),
             ensure_ascii=False,
             allow_nan=False,
         )
-    return str(value)
+    else:
+        text = str(value)
+    if text.lstrip(" \t\r\n").startswith(("=", "+", "-", "@")):
+        return "'" + text
+    return text
 
 
 class SavedResultsStore:
@@ -275,13 +281,13 @@ class SavedResultsStore:
         for result in exported_results:
             record = result["record"]
             row = {
-                "bundle_nickname": exported_bundle.get("nickname"),
-                "schema_version": exported_bundle.get("schema_version"),
-                "genome_build": exported_bundle.get("genome_build"),
-                "bundle_generated_at": exported_bundle.get("generated_at"),
-                "saved_at": result["saved_at"],
-                "search": result["search"],
-                "result_type": result["result_type"],
+                "bundle_nickname": _csv_value(exported_bundle.get("nickname")),
+                "schema_version": _csv_value(exported_bundle.get("schema_version")),
+                "genome_build": _csv_value(exported_bundle.get("genome_build")),
+                "bundle_generated_at": _csv_value(exported_bundle.get("generated_at")),
+                "saved_at": _csv_value(result["saved_at"]),
+                "search": _csv_value(result["search"]),
+                "result_type": _csv_value(result["result_type"]),
             }
             row.update(
                 {

@@ -18,8 +18,31 @@ import duckdb
 SUPPORTED_SCHEMA_MAJOR = 1
 CHUNK_SIZE = 1024 * 1024
 MAX_MANIFEST_BYTES = 5 * 1024 * 1024
+MAX_ARCHIVE_MEMBERS = 100_000
+MAX_ARCHIVE_MEMBER_BYTES = 128 * 1024 * 1024 * 1024
+MAX_ARCHIVE_EXPANDED_BYTES = 256 * 1024 * 1024 * 1024
+MAX_EXTRACTED_BYTES = 16 * 1024 * 1024 * 1024
+MAX_VALIDATION_BYTES = 2 * 1024 * 1024 * 1024
+MAX_ARCHIVE_COMPRESSION_RATIO = 200
+MIN_COMPRESSION_RATIO_BYTES = 1024 * 1024 * 1024
 RECEIPT_FILENAME = ".validation-receipt.json"
-RECEIPT_VERSION = 1
+RECEIPT_VERSION = 2
+RETAINED_FILES = frozenset(
+    {
+        "schema.json",
+        "omissions.json",
+        "clinical_findings.parquet",
+        "clinical_evidence.parquet",
+        "pharmacogenomics.parquet",
+        "prs.parquet",
+        "gwas_associations.parquet",
+        "gene_index.parquet",
+        "callability.parquet",
+        "callable_regions.parquet",
+    }
+)
+RETAINED_DIRECTORIES = frozenset({"variants.parquet"})
+SHA256_PATTERN = re.compile(r"^[a-f0-9]{64}$")
 SCHEMA_VERSION_PATTERN = re.compile(
     r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$"
 )
@@ -65,6 +88,10 @@ class SearchResult:
 
 
 def _safe_relative_path(name: str, root_name: str) -> Optional[str]:
+    if not isinstance(name, str) or not name or "\\" in name:
+        raise ValueError("archive contains an unsafe path: %s" % name)
+    if any(ord(character) < 32 for character in name):
+        raise ValueError("archive contains an unsafe path: %s" % name)
     path = PurePosixPath(name)
     if path.is_absolute() or ".." in path.parts:
         raise ValueError("archive contains an unsafe path: %s" % name)
@@ -74,30 +101,148 @@ def _safe_relative_path(name: str, root_name: str) -> Optional[str]:
         raise ValueError("archive contains more than one top-level directory")
     if len(path.parts) == 1:
         return None
-    return PurePosixPath(*path.parts[1:]).as_posix()
+    relative = PurePosixPath(*path.parts[1:])
+    for part in relative.parts:
+        if ":" in part or part.rstrip(" .") != part:
+            raise ValueError("archive contains an unsafe path: %s" % name)
+        windows_name = part.split(".", 1)[0].casefold()
+        if windows_name in {"con", "prn", "aux", "nul"} or re.fullmatch(
+            r"(?:com|lpt)[1-9]", windows_name
+        ):
+            raise ValueError("archive contains an unsafe path: %s" % name)
+    return relative.as_posix()
+
+
+def _safe_manifest_path(name: Any) -> str:
+    if not isinstance(name, str):
+        raise ValueError("manifest contains a non-string file path")
+    relative = _safe_relative_path("bundle/" + name, "bundle")
+    if relative is None or relative != name:
+        raise ValueError("manifest contains an unsafe or non-canonical path: %s" % name)
+    if relative == "manifest.json":
+        raise ValueError("manifest.json must not declare itself")
+    return relative
+
+
+def _destination_path(workspace: Path, relative_path: str) -> Path:
+    base = workspace.resolve()
+    destination = base.joinpath(*PurePosixPath(relative_path).parts).resolve()
+    try:
+        destination.relative_to(base)
+    except ValueError as error:
+        raise ValueError("archive contains an unsafe path: %s" % relative_path) from error
+    return destination
 
 
 def _should_extract(relative_path: str) -> bool:
-    lower = relative_path.lower()
-    return (
-        lower.endswith(".json")
-        or lower.endswith(".parquet")
-        or ".parquet/" in lower
+    return relative_path in RETAINED_FILES or any(
+        relative_path == directory or relative_path.startswith(directory + "/")
+        for directory in RETAINED_DIRECTORIES
     )
 
 
+def _reject_duplicate_json_keys(pairs: List[Tuple[str, Any]]) -> Dict[str, Any]:
+    result: Dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("manifest contains a duplicate JSON key: %s" % key)
+        result[key] = value
+    return result
+
+
+def _parse_manifest(manifest_bytes: bytes) -> Dict[str, Any]:
+    manifest = json.loads(
+        manifest_bytes,
+        object_pairs_hook=_reject_duplicate_json_keys,
+    )
+    if not isinstance(manifest, dict):
+        raise ValueError("manifest.json must contain a JSON object")
+    return manifest
+
+
+def _validated_manifest_files(manifest: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+    candidate = manifest.get("files")
+    if not isinstance(candidate, dict):
+        raise ValueError("manifest files field is missing or invalid")
+
+    declared: Dict[str, Dict[str, Any]] = {}
+    casefolded_paths: Dict[str, str] = {}
+    for untrusted_path, untrusted_metadata in candidate.items():
+        relative_path = _safe_manifest_path(untrusted_path)
+        casefolded = relative_path.casefold()
+        previous = casefolded_paths.get(casefolded)
+        if previous is not None and previous != relative_path:
+            raise ValueError(
+                "manifest contains paths that collide on common filesystems: %s and %s"
+                % (previous, relative_path)
+            )
+        casefolded_paths[casefolded] = relative_path
+        if not isinstance(untrusted_metadata, dict):
+            raise ValueError("manifest metadata is invalid for: %s" % relative_path)
+        recorded_hash = untrusted_metadata.get("sha256")
+        if not isinstance(recorded_hash, str) or not SHA256_PATTERN.fullmatch(
+            recorded_hash
+        ):
+            raise ValueError("manifest hash is invalid for: %s" % relative_path)
+        recorded_bytes = untrusted_metadata.get("bytes")
+        if recorded_bytes is not None and (
+            isinstance(recorded_bytes, bool)
+            or not isinstance(recorded_bytes, int)
+            or recorded_bytes < 0
+        ):
+            raise ValueError("manifest byte count is invalid for: %s" % relative_path)
+        declared[relative_path] = untrusted_metadata
+
+    if "schema.json" not in declared:
+        raise ValueError("schema.json must be declared in manifest files")
+    if "variants.parquet" not in declared:
+        raise ValueError("variants.parquet must be declared in manifest files")
+    return declared
+
+
+def _archive_budget(
+    member_count: int,
+    expanded_bytes: int,
+    member_size: int,
+    archive_size: int,
+) -> int:
+    if member_count > MAX_ARCHIVE_MEMBERS:
+        raise ValueError("archive contains too many entries")
+    if member_size < 0 or member_size > MAX_ARCHIVE_MEMBER_BYTES:
+        raise ValueError("archive member exceeds the supported size limit")
+    updated_bytes = expanded_bytes + member_size
+    if updated_bytes > MAX_ARCHIVE_EXPANDED_BYTES:
+        raise ValueError("archive exceeds the supported expansion limit")
+    compression_limit = max(
+        MIN_COMPRESSION_RATIO_BYTES,
+        archive_size * MAX_ARCHIVE_COMPRESSION_RATIO,
+    )
+    if updated_bytes > compression_limit:
+        raise ValueError("archive exceeds the supported compression ratio")
+    return updated_bytes
+
+
 def _read_manifest(archive: Path) -> Tuple[str, bytes, Dict[str, Any]]:
+    archive_size = archive.stat().st_size
     with tarfile.open(str(archive), mode="r:gz") as bundle:
         root_name = None
+        member_count = 0
+        expanded_bytes = 0
         for member in bundle:
+            member_count += 1
+            expanded_bytes = _archive_budget(
+                member_count,
+                expanded_bytes,
+                member.size,
+                archive_size,
+            )
             path = PurePosixPath(member.name)
             if not path.parts:
                 continue
             if root_name is None:
                 root_name = path.parts[0]
-            if path.parts[0] != root_name:
-                raise ValueError("archive contains more than one top-level directory")
-            if len(path.parts) == 2 and path.name == "manifest.json":
+            relative_path = _safe_relative_path(member.name, root_name)
+            if relative_path == "manifest.json":
                 if not member.isfile():
                     raise ValueError("manifest.json is not a regular file")
                 if member.size > MAX_MANIFEST_BYTES:
@@ -106,7 +251,9 @@ def _read_manifest(archive: Path) -> Tuple[str, bytes, Dict[str, Any]]:
                 if source is None:
                     raise ValueError("manifest.json could not be read")
                 manifest_bytes = source.read()
-                manifest = json.loads(manifest_bytes)
+                if len(manifest_bytes) != member.size:
+                    raise ValueError("manifest.json is truncated")
+                manifest = _parse_manifest(manifest_bytes)
                 return root_name, manifest_bytes, manifest
     raise ValueError("manifest.json was not found")
 
@@ -133,22 +280,6 @@ def _archive_fingerprint(archive: Path) -> Dict[str, Any]:
     }
 
 
-def _workspace_entry_size(path: Path) -> Optional[int]:
-    if path.is_symlink():
-        return None
-    if path.is_file():
-        return path.stat().st_size
-    if not path.is_dir():
-        return None
-    total = 0
-    for member in path.rglob("*"):
-        if member.is_symlink():
-            return None
-        if member.is_file():
-            total += member.stat().st_size
-    return total
-
-
 def _workspace_matches_receipt(workspace: Path, receipt: Dict[str, Any]) -> bool:
     if receipt.get("version") != RECEIPT_VERSION:
         return False
@@ -159,20 +290,40 @@ def _workspace_matches_receipt(workspace: Path, receipt: Dict[str, Any]) -> bool
     if not (workspace / "variants.parquet").is_dir():
         return False
 
-    manifest_hasher = hashlib.sha256()
-    with (workspace / "manifest.json").open("rb") as source:
-        manifest_hasher.update(source.read())
-    if manifest_hasher.hexdigest() != receipt.get("manifest_sha256"):
+    manifest_bytes = (workspace / "manifest.json").read_bytes()
+    if hashlib.sha256(manifest_bytes).hexdigest() != receipt.get("manifest_sha256"):
         return False
+    manifest = _parse_manifest(manifest_bytes)
+    declared = _validated_manifest_files(manifest)
 
     stored_entries = receipt.get("stored_entries")
     if not isinstance(stored_entries, dict):
         return False
-    for relative_path, expected_size in stored_entries.items():
-        path = PurePosixPath(relative_path)
-        if path.is_absolute() or ".." in path.parts:
+    expected_paths = {
+        relative_path for relative_path in declared if _should_extract(relative_path)
+    }
+    if set(stored_entries) != expected_paths:
+        return False
+    for relative_path, expected in stored_entries.items():
+        if not isinstance(expected, dict):
             return False
-        if _workspace_entry_size(workspace / relative_path) != expected_size:
+        if _safe_manifest_path(relative_path) != relative_path:
+            return False
+        metadata = declared[relative_path]
+        if expected.get("sha256") != metadata.get("sha256"):
+            return False
+        expected_kind = (
+            "directory" if relative_path in RETAINED_DIRECTORIES else "file"
+        )
+        if expected.get("kind") != expected_kind:
+            return False
+        actual_hash, actual_size = _hash_workspace_entry(
+            workspace / relative_path,
+            expected_kind,
+        )
+        if actual_hash != expected.get("sha256") or actual_size != expected.get(
+            "bytes"
+        ):
             return False
     return True
 
@@ -228,9 +379,18 @@ def _ancestor_manifest_directories(
 
 
 def _hash_directory(path: Path) -> Tuple[str, int]:
+    if path.is_symlink() or not path.is_dir():
+        raise ValueError("workspace entry is not a regular directory: %s" % path)
     hasher = hashlib.sha256()
     total_bytes = 0
-    for member in sorted(candidate for candidate in path.rglob("*") if candidate.is_file()):
+    members = sorted(path.rglob("*"))
+    for member in members:
+        if member.is_symlink():
+            raise ValueError("workspace contains an unsupported link: %s" % member)
+        if member.is_dir():
+            continue
+        if not member.is_file():
+            raise ValueError("workspace contains a special file: %s" % member)
         hasher.update(member.relative_to(path).as_posix().encode("utf-8"))
         hasher.update(b"\0")
         with member.open("rb") as source:
@@ -241,6 +401,29 @@ def _hash_directory(path: Path) -> Tuple[str, int]:
                 hasher.update(chunk)
                 total_bytes += len(chunk)
     return hasher.hexdigest(), total_bytes
+
+
+def _hash_file(path: Path) -> Tuple[str, int]:
+    if path.is_symlink() or not path.is_file():
+        raise ValueError("workspace entry is not a regular file: %s" % path)
+    hasher = hashlib.sha256()
+    total_bytes = 0
+    with path.open("rb") as source:
+        while True:
+            chunk = source.read(CHUNK_SIZE)
+            if not chunk:
+                break
+            hasher.update(chunk)
+            total_bytes += len(chunk)
+    return hasher.hexdigest(), total_bytes
+
+
+def _hash_workspace_entry(path: Path, kind: str) -> Tuple[str, int]:
+    if kind == "directory":
+        return _hash_directory(path)
+    if kind == "file":
+        return _hash_file(path)
+    raise ValueError("receipt contains an unsupported workspace entry kind")
 
 
 def open_bundle(
@@ -266,9 +449,7 @@ def open_bundle(
             % schema_version
         )
 
-    declared = manifest.get("files")
-    if not isinstance(declared, dict):
-        raise ValueError("manifest files field is missing or invalid")
+    declared = _validated_manifest_files(manifest)
 
     workspace_root.mkdir(parents=True, exist_ok=True)
     final_workspace = workspace_root / _manifest_identity(manifest_bytes)
@@ -286,19 +467,44 @@ def open_bundle(
     exact_hashes: Dict[str, str] = {}
     exact_sizes: Dict[str, int] = {}
     observed_directories = set()
+    retained_entries = set()
     manifest_paths = tuple(declared.keys())
     extracted_files = 0
     extracted_bytes = 0
     skipped_files = 0
     skipped_bytes = 0
+    validation_bytes = 0
+    archive_member_count = 0
+    archive_expanded_bytes = 0
+    seen_entries: Dict[str, str] = {}
+    manifest_seen = False
 
     try:
         with tarfile.open(str(archive), mode="r|gz") as bundle:
             for member in bundle:
+                archive_member_count += 1
+                archive_expanded_bytes = _archive_budget(
+                    archive_member_count,
+                    archive_expanded_bytes,
+                    member.size,
+                    archive_fingerprint["size"],
+                )
                 relative_path = _safe_relative_path(member.name, root_name)
                 if member.issym() or member.islnk():
                     raise ValueError("archive links are not supported: %s" % member.name)
-                if member.isdir() or relative_path is None:
+                if relative_path is None:
+                    if not member.isdir():
+                        raise ValueError("archive root is not a directory")
+                    continue
+                collision_key = relative_path.casefold()
+                previous = seen_entries.get(collision_key)
+                if previous is not None:
+                    raise ValueError(
+                        "duplicate archive entry: %s conflicts with %s"
+                        % (relative_path, previous)
+                    )
+                seen_entries[collision_key] = relative_path
+                if member.isdir():
                     continue
                 if not member.isfile():
                     raise ValueError(
@@ -309,21 +515,55 @@ def open_bundle(
                 if source is None:
                     raise ValueError("archive member could not be read: %s" % member.name)
 
+                if relative_path == "manifest.json":
+                    if member.size > MAX_MANIFEST_BYTES:
+                        raise ValueError("manifest.json is unexpectedly large")
+                    current_manifest = source.read(MAX_MANIFEST_BYTES + 1)
+                    if current_manifest != manifest_bytes or len(current_manifest) != member.size:
+                        raise ValueError("manifest.json changed while the archive was read")
+                    if extracted_bytes + member.size > MAX_EXTRACTED_BYTES:
+                        raise ValueError("archive exceeds the supported extraction limit")
+                    _destination_path(
+                        temporary_workspace, "manifest.json"
+                    ).write_bytes(manifest_bytes)
+                    manifest_seen = True
+                    extracted_files += 1
+                    extracted_bytes += member.size
+                    continue
+
                 ancestors = _ancestor_manifest_directories(
                     relative_path, manifest_paths
                 )
+                if relative_path not in declared and not ancestors:
+                    raise ValueError("undeclared archive entry: %s" % relative_path)
                 observed_directories.update(ancestors)
-                should_extract = (
-                    any(directory.lower().endswith(".parquet") for directory in ancestors)
-                    if ancestors
-                    else _should_extract(relative_path)
+                retained_ancestors = [
+                    directory for directory in ancestors if _should_extract(directory)
+                ]
+                if relative_path in declared and _should_extract(relative_path):
+                    retained_entries.add(relative_path)
+                retained_entries.update(retained_ancestors)
+                should_extract = bool(retained_ancestors) or (
+                    relative_path in declared and _should_extract(relative_path)
                 )
+                if should_extract and extracted_bytes + member.size > MAX_EXTRACTED_BYTES:
+                    raise ValueError("archive exceeds the supported extraction limit")
 
-                destination_path = None
                 if should_extract:
-                    destination_path = temporary_workspace / relative_path
+                    destination_path = _destination_path(
+                        temporary_workspace, relative_path
+                    )
                 elif ancestors:
-                    destination_path = validation_workspace / relative_path
+                    if validation_bytes + member.size > MAX_VALIDATION_BYTES:
+                        raise ValueError(
+                            "archive exceeds the supported validation workspace limit"
+                        )
+                    destination_path = _destination_path(
+                        validation_workspace, relative_path
+                    )
+                    validation_bytes += member.size
+                else:
+                    destination_path = None
 
                 destination = None
                 if destination_path is not None:
@@ -331,6 +571,7 @@ def open_bundle(
                     destination = destination_path.open("wb")
 
                 file_hasher = hashlib.sha256()
+                bytes_read = 0
                 try:
                     while True:
                         chunk = source.read(CHUNK_SIZE)
@@ -339,24 +580,35 @@ def open_bundle(
                         file_hasher.update(chunk)
                         if destination is not None:
                             destination.write(chunk)
+                        bytes_read += len(chunk)
                 finally:
                     if destination is not None:
                         destination.close()
+                if bytes_read != member.size:
+                    raise ValueError("archive member is truncated: %s" % relative_path)
 
                 exact_hashes[relative_path] = file_hasher.hexdigest()
-                exact_sizes[relative_path] = member.size
+                exact_sizes[relative_path] = bytes_read
                 if should_extract:
                     extracted_files += 1
-                    extracted_bytes += member.size
+                    extracted_bytes += bytes_read
                 else:
                     skipped_files += 1
-                    skipped_bytes += member.size
+                    skipped_bytes += bytes_read
+
+        if not manifest_seen:
+            raise ValueError("manifest.json was not found during archive validation")
 
         failures = []
+        validated_entries: Dict[str, Tuple[str, int, str]] = {}
         for relative_path, metadata in declared.items():
             if relative_path in observed_directories:
-                extracted_directory = temporary_workspace / relative_path
-                validation_directory = validation_workspace / relative_path
+                extracted_directory = _destination_path(
+                    temporary_workspace, relative_path
+                )
+                validation_directory = _destination_path(
+                    validation_workspace, relative_path
+                )
                 directory_path = (
                     extracted_directory
                     if extracted_directory.is_dir()
@@ -375,10 +627,22 @@ def open_bundle(
             expected_size = metadata.get("bytes")
             if expected_size is not None and actual_size != expected_size:
                 failures.append("byte count mismatch: %s" % relative_path)
+            if actual_hash is not None and actual_size is not None:
+                validated_entries[relative_path] = (
+                    actual_hash,
+                    actual_size,
+                    "directory"
+                    if relative_path in observed_directories
+                    else "file",
+                )
 
-        if "schema.json" not in exact_hashes:
+        if "schema.json" not in exact_hashes or "schema.json" in observed_directories:
             failures.append("missing required entry: schema.json")
-        if not any(path.startswith("variants.parquet/") for path in exact_hashes):
+        for relative_path in sorted(RETAINED_FILES.intersection(observed_directories)):
+            failures.append("expected a regular file: %s" % relative_path)
+        if "variants.parquet" not in observed_directories or not any(
+            path.startswith("variants.parquet/") for path in exact_hashes
+        ):
             failures.append("missing required directory: variants.parquet")
         if failures:
             raise ValueError("bundle validation failed:\n  - " + "\n  - ".join(failures))
@@ -388,11 +652,14 @@ def open_bundle(
 
         shutil.rmtree(validation_workspace)
         validated_at = datetime.now(timezone.utc).isoformat()
-        stored_entries = {
-            relative_path: metadata.get("bytes")
-            for relative_path, metadata in declared.items()
-            if _should_extract(relative_path) and metadata.get("bytes") is not None
-        }
+        stored_entries = {}
+        for relative_path in sorted(retained_entries):
+            actual_hash, actual_size, kind = validated_entries[relative_path]
+            stored_entries[relative_path] = {
+                "sha256": actual_hash,
+                "bytes": actual_size,
+                "kind": kind,
+            }
         receipt = {
             "version": RECEIPT_VERSION,
             "validated_at": validated_at,

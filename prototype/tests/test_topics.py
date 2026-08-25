@@ -166,6 +166,17 @@ class TopicIndexTest(unittest.TestCase):
                 """,
                 [str(variants / "part-0000.parquet")],
             )
+            connection.execute(
+                """
+                COPY (
+                    SELECT 'cholesterol'::VARCHAR AS trait,
+                           0.42::DOUBLE AS score_value,
+                           81.5::DOUBLE AS percentile,
+                           'Synthetic reference'::VARCHAR AS reference_population
+                ) TO ? (FORMAT PARQUET)
+                """,
+                [str(workspace / "prs.parquet")],
+            )
             connection.close()
 
             topics = topics_for_workspace(str(workspace))
@@ -182,6 +193,10 @@ class TopicIndexTest(unittest.TestCase):
             self.assertEqual(
                 by_id["eye-color"]["answerability"]["unavailable_analyses"],
                 ["trait_variants"],
+            )
+            self.assertEqual(
+                by_id["eye-color"]["answerability"]["included_analyses"],
+                ["polygenic_scores"],
             )
 
 

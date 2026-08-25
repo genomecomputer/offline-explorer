@@ -87,6 +87,24 @@ class SavedResultsStoreTest(unittest.TestCase):
                 {"section": "generated_interpretation", "text": "not from bundle"},
             )
 
+    def test_csv_export_neutralizes_spreadsheet_formulas(self):
+        record = dict(
+            self.record,
+            phenotype='=HYPERLINK("https://example.test","open")',
+        )
+        bundle = dict(self.bundle, nickname="@synthetic")
+        self.store.add("bundle-1", "+lookup", record)
+
+        exported = self.store.export("bundle-1", bundle, "csv")
+        row = next(csv.DictReader(io.StringIO(exported["content"])))
+
+        self.assertEqual(row["bundle_nickname"], "'@synthetic")
+        self.assertEqual(row["search"], "'+lookup")
+        self.assertEqual(
+            row["phenotype"],
+            "'=HYPERLINK(\"https://example.test\",\"open\")",
+        )
+
     def test_ignores_a_corrupt_local_store(self):
         self.path.write_text("[]", encoding="utf-8")
 

@@ -19,6 +19,7 @@ import {
   parseBackendReady,
   type BackendReady,
 } from "./backend-contract";
+import { migrateLegacyUserData } from "./user-data-migration";
 
 const repositoryRoot = path.resolve(__dirname, "..");
 const startupTimeoutMilliseconds = 90_000;
@@ -377,6 +378,9 @@ if (!singleInstance) {
   });
 
   app.whenReady().then(async () => {
+    if (!process.env.OFFLINE_EXPLORER_USER_DATA) {
+      migrateLegacyUserData(app.getPath("userData"));
+    }
     session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
     session.defaultSession.webRequest.onBeforeRequest((details, callback) => {
       if (details.url.startsWith("data:text/html")) {

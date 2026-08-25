@@ -356,13 +356,6 @@ def _topic_answerability(
         "not_included_analyses": not_included,
         **common,
     }
-    if included:
-        return {
-            "state": "analysis_included_no_record",
-            "basis": "bundle_analysis_inventory",
-            "reason": "relevant_analysis_included_without_matching_record",
-            **evidence,
-        }
     if unavailable:
         return {
             "state": "insufficient_bundle_data",
@@ -370,10 +363,24 @@ def _topic_answerability(
             "reason": "relevant_analysis_unavailable",
             **evidence,
         }
+    if not_included:
+        return {
+            "state": "analysis_not_included",
+            "basis": "bundle_analysis_inventory",
+            "reason": "relevant_analysis_not_included",
+            **evidence,
+        }
+    if included:
+        return {
+            "state": "analysis_included_no_record",
+            "basis": "bundle_analysis_inventory",
+            "reason": "relevant_analysis_included_without_matching_record",
+            **evidence,
+        }
     return {
-        "state": "analysis_not_included",
+        "state": "insufficient_bundle_data",
         "basis": "bundle_analysis_inventory",
-        "reason": "relevant_analysis_not_included",
+        "reason": "relevant_analysis_status_unavailable",
         **evidence,
     }
 

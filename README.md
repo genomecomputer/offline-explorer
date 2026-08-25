@@ -9,13 +9,13 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/genomecomputer/genome-explorer/releases"><img alt="GitHub release" src="https://img.shields.io/github/v/release/genomecomputer/genome-explorer?include_prereleases&label=release"></a>
+  <a href="https://github.com/genomecomputer/offline-explorer/releases"><img alt="GitHub release" src="https://img.shields.io/github/v/release/genomecomputer/offline-explorer?include_prereleases&label=release"></a>
   <a href="LICENSE"><img alt="Apache 2.0 license" src="https://img.shields.io/badge/license-Apache%202.0-blue.svg"></a>
   <img alt="macOS on Apple silicon" src="https://img.shields.io/badge/macOS-Apple%20silicon-black.svg">
 </p>
 
 <p align="center">
-  <a href="https://github.com/genomecomputer/genome-explorer/releases">Download</a>
+  <a href="https://github.com/genomecomputer/offline-explorer/releases">Download</a>
   ·
   <a href="https://github.com/genome-computer/genome-spec"><code>.genome</code> specification</a>
   ·
@@ -34,7 +34,7 @@ Offline Explorer is an open-source desktop application for browsing compatible `
 
 ## Download
 
-Preview builds for macOS on Apple silicon are available from [GitHub Releases](https://github.com/genomecomputer/genome-explorer/releases).
+Preview builds for macOS on Apple silicon are available from [GitHub Releases](https://github.com/genomecomputer/offline-explorer/releases).
 
 ## The `.genome` bundle
 

@@ -20,6 +20,7 @@ import {
   parseBackendReady,
   type BackendReady,
 } from "./backend-contract";
+import { lowerProcessPriority } from "./process-priority";
 import { migrateLegacyUserData } from "./user-data-migration";
 
 const repositoryRoot = path.resolve(__dirname, "..");
@@ -85,6 +86,7 @@ function startBackend(): Promise<BackendReady> {
       windowsHide: true,
     },
   );
+  lowerProcessPriority(child.pid);
   backendProcess = child;
   const childStdout = child.stdout;
   const childStderr = child.stderr;

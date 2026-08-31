@@ -1,6 +1,7 @@
 import hashlib
 import io
 import json
+import os
 import tarfile
 import tempfile
 import unittest
@@ -167,16 +168,61 @@ class BundleValidationTest(unittest.TestCase):
         archive = self._write_bundle()
         first = open_bundle(str(archive), self.workspace_root)
         schema_path = Path(first.workspace) / "schema.json"
+        original_stat = schema_path.stat()
         original = schema_path.read_bytes()
         replacement = original.replace(b"synthetic", b"tampered!")
         self.assertEqual(len(original), len(replacement))
         schema_path.write_bytes(replacement)
+        os.utime(
+            schema_path,
+            ns=(original_stat.st_atime_ns, original_stat.st_mtime_ns),
+        )
 
         second = open_bundle(str(archive), self.workspace_root)
 
         self.assertFalse(second.reused_workspace)
         self.assertEqual(second.validation_mode, "full")
         self.assertEqual(Path(second.workspace, "schema.json").read_bytes(), original)
+
+    def test_unchanged_cached_workspace_does_not_rehash_file_contents(self):
+        archive = self._write_bundle()
+        open_bundle(str(archive), self.workspace_root)
+
+        with mock.patch.object(
+            core,
+            "_hash_workspace_entry",
+            wraps=core._hash_workspace_entry,
+        ) as hash_workspace_entry:
+            report = open_bundle(str(archive), self.workspace_root)
+
+        self.assertTrue(report.reused_workspace)
+        self.assertEqual(report.validation_mode, "cached")
+        hash_workspace_entry.assert_not_called()
+
+    def test_changed_metadata_falls_back_to_hashing_once(self):
+        archive = self._write_bundle()
+        first = open_bundle(str(archive), self.workspace_root)
+        Path(first.workspace, "schema.json").touch()
+
+        with mock.patch.object(
+            core,
+            "_hash_workspace_entry",
+            wraps=core._hash_workspace_entry,
+        ) as hash_workspace_entry:
+            second = open_bundle(str(archive), self.workspace_root)
+
+        self.assertTrue(second.reused_workspace)
+        self.assertEqual(hash_workspace_entry.call_count, 1)
+
+        with mock.patch.object(
+            core,
+            "_hash_workspace_entry",
+            wraps=core._hash_workspace_entry,
+        ) as hash_workspace_entry:
+            third = open_bundle(str(archive), self.workspace_root)
+
+        self.assertTrue(third.reused_workspace)
+        hash_workspace_entry.assert_not_called()
 
 
 if __name__ == "__main__":

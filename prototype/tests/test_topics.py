@@ -152,6 +152,40 @@ class TopicIndexTest(unittest.TestCase):
         cache = json.loads((self.workspace / TOPIC_INDEX_FILENAME).read_text())
         self.assertEqual(cache["topics"], topics)
 
+    def test_topic_index_normalizes_flattened_clinical_findings(self):
+        (self.workspace / "clinical_findings.parquet").unlink()
+        connection = duckdb.connect()
+        connection.execute(
+            """
+            COPY (
+                SELECT 'variant-1'::VARCHAR AS variant_id,
+                       'BRCA1'::VARCHAR AS gene_symbol,
+                       'Breast cancer'::VARCHAR AS clinvar_disease_names,
+                       'Likely_pathogenic'::VARCHAR AS clinvar_significance,
+                       'clinvar'::VARCHAR AS finding_category,
+                       true AS clinical_grade
+            ) TO ? (FORMAT PARQUET)
+            """,
+            [str(self.workspace / "clinical_findings.parquet")],
+        )
+        connection.close()
+
+        topics = topics_for_workspace(str(self.workspace))
+        by_id = {topic["id"]: topic for topic in topics}
+
+        self.assertEqual(
+            by_id["breast-cancer"]["personal"]["clinical_findings"],
+            [
+                {
+                    "finding_id": "variant-1",
+                    "condition": "Breast cancer",
+                    "claim_type": "clinvar",
+                    "classification": "Likely_pathogenic",
+                    "gene_symbol": "BRCA1",
+                }
+            ],
+        )
+
     def test_topic_index_distinguishes_missing_and_unusable_analysis(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
             workspace = Path(temporary_directory)

@@ -8,9 +8,11 @@ from typing import Any, DefaultDict, Dict, List, Optional, Sequence, Set, Tuple
 
 import duckdb
 
+from .clinical_schema import clinical_findings_projection
+
 
 TOPIC_INDEX_FILENAME = ".topic-index.json"
-TOPIC_INDEX_VERSION = 6
+TOPIC_INDEX_VERSION = 7
 
 ANALYSIS_INCLUDED = "included"
 ANALYSIS_NOT_INCLUDED = "not_included"
@@ -113,6 +115,19 @@ def _scan_clinical_findings(
             "CREATE VIEW topic_clinical_findings AS SELECT * FROM read_parquet('%s')"
             % _sql_path(path)
         )
+        columns = {
+            str(row[1])
+            for row in connection.execute(
+                "PRAGMA table_info('topic_clinical_findings')"
+            ).fetchall()
+        }
+        projection = clinical_findings_projection(columns)
+        if projection is None:
+            return [], ANALYSIS_UNAVAILABLE
+        connection.execute(
+            "CREATE VIEW normalized_topic_clinical_findings AS "
+            "SELECT %s FROM topic_clinical_findings AS source" % projection
+        )
         findings = [
             {
                 "finding_id": finding_id,
@@ -124,7 +139,7 @@ def _scan_clinical_findings(
             for finding_id, condition, claim_type, classification, gene_symbol in connection.execute(
                 """
                 SELECT finding_id, condition, claim_type, classification, gene_symbol
-                FROM topic_clinical_findings
+                FROM normalized_topic_clinical_findings
                 WHERE clinical_grade = true
                 ORDER BY condition, finding_id
                 """
@@ -146,7 +161,7 @@ def _scan_clinical_findings(
                             findings.claim_type,
                             findings.classification,
                             findings.gene_symbol
-            FROM topics, topic_clinical_findings AS findings
+            FROM topics, normalized_topic_clinical_findings AS findings
             WHERE findings.clinical_grade = true
               AND lower(findings.condition) LIKE '%%' || lower(topics.term) || '%%'
             ORDER BY findings.condition, findings.finding_id

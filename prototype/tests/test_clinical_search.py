@@ -120,6 +120,62 @@ class ClinicalSearchTest(unittest.TestCase):
         ]
         self.assertEqual([hit["finding_id"] for hit in clinical_hits], ["finding-1"])
 
+    def test_flattened_clinical_schema_is_normalized_for_search(self):
+        (self.workspace / "clinical_findings.parquet").unlink()
+        (self.workspace / "clinical_evidence.parquet").unlink()
+        connection = duckdb.connect()
+        connection.execute(
+            """
+            COPY (
+                SELECT 'chr17:43071077:A:G'::VARCHAR AS variant_id,
+                       'BRCA1'::VARCHAR AS gene_symbol,
+                       'Likely_pathogenic'::VARCHAR AS clinvar_significance,
+                       'VCV000012345'::VARCHAR AS clinvar_id,
+                       'Breast cancer'::VARCHAR AS clinvar_disease_names,
+                       'reviewed by expert panel'::VARCHAR AS clinvar_review_status,
+                       3::BIGINT AS clinvar_review_stars,
+                       false AS clinvar_has_conflicts,
+                       NULL::VARCHAR AS clinvar_conflict_summary,
+                       true AS clinical_grade,
+                       'clinvar'::VARCHAR AS finding_category
+            ) TO ? (FORMAT PARQUET)
+            """,
+            [str(self.workspace / "clinical_findings.parquet")],
+        )
+        connection.execute(
+            """
+            COPY (
+                SELECT 'chr17:43071077:A:G'::VARCHAR AS variant_id,
+                       'BRCA1'::VARCHAR AS gene_symbol,
+                       'Likely_pathogenic'::VARCHAR AS clinvar_significance,
+                       'VCV000012345'::VARCHAR AS clinvar_id,
+                       'reviewed by expert panel'::VARCHAR AS clinvar_review_status,
+                       3::BIGINT AS clinvar_review_stars,
+                       false AS clinvar_has_conflicts,
+                       NULL::VARCHAR AS clinvar_conflict_summary,
+                       true AS clinical_grade
+            ) TO ? (FORMAT PARQUET)
+            """,
+            [str(self.workspace / "clinical_evidence.parquet")],
+        )
+        connection.close()
+
+        result = search_workspace(str(self.workspace), "BRCA1")
+        clinical_hits = [
+            hit for hit in result.hits if hit["section"] == "clinical_findings"
+        ]
+
+        self.assertEqual(len(clinical_hits), 1)
+        finding = clinical_hits[0]
+        self.assertEqual(finding["finding_id"], "chr17:43071077:A:G")
+        self.assertEqual(finding["condition"], "Breast cancer")
+        self.assertEqual(finding["classification"], "Likely_pathogenic")
+        self.assertEqual(finding["evidence"][0]["source"], "ClinVar")
+        self.assertEqual(
+            finding["evidence"][0]["review_status"],
+            "reviewed by expert panel",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -15,6 +15,11 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import duckdb
 
+from .clinical_schema import (
+    clinical_evidence_projection,
+    clinical_findings_projection,
+)
+
 SUPPORTED_SCHEMA_MAJOR = 1
 CHUNK_SIZE = 1024 * 1024
 MAX_MANIFEST_BYTES = 5 * 1024 * 1024
@@ -280,52 +285,64 @@ def _archive_fingerprint(archive: Path) -> Dict[str, Any]:
     }
 
 
-def _workspace_matches_receipt(workspace: Path, receipt: Dict[str, Any]) -> bool:
+def _workspace_matches_receipt(
+    workspace: Path, receipt: Dict[str, Any]
+) -> Tuple[bool, bool]:
     if receipt.get("version") != RECEIPT_VERSION:
-        return False
+        return False, False
     if not (workspace / "manifest.json").is_file():
-        return False
+        return False, False
     if not (workspace / "schema.json").is_file():
-        return False
+        return False, False
     if not (workspace / "variants.parquet").is_dir():
-        return False
+        return False, False
 
     manifest_bytes = (workspace / "manifest.json").read_bytes()
     if hashlib.sha256(manifest_bytes).hexdigest() != receipt.get("manifest_sha256"):
-        return False
+        return False, False
     manifest = _parse_manifest(manifest_bytes)
     declared = _validated_manifest_files(manifest)
 
     stored_entries = receipt.get("stored_entries")
     if not isinstance(stored_entries, dict):
-        return False
+        return False, False
     expected_paths = {
         relative_path for relative_path in declared if _should_extract(relative_path)
     }
     if set(stored_entries) != expected_paths:
-        return False
+        return False, False
+    receipt_changed = False
     for relative_path, expected in stored_entries.items():
         if not isinstance(expected, dict):
-            return False
+            return False, False
         if _safe_manifest_path(relative_path) != relative_path:
-            return False
+            return False, False
         metadata = declared[relative_path]
         if expected.get("sha256") != metadata.get("sha256"):
-            return False
+            return False, False
         expected_kind = (
             "directory" if relative_path in RETAINED_DIRECTORIES else "file"
         )
         if expected.get("kind") != expected_kind:
-            return False
+            return False, False
+        entry_path = workspace / relative_path
+        current_snapshot = _workspace_entry_snapshot(entry_path, expected_kind)
+        if current_snapshot == expected.get("snapshot"):
+            continue
         actual_hash, actual_size = _hash_workspace_entry(
-            workspace / relative_path,
+            entry_path,
             expected_kind,
         )
         if actual_hash != expected.get("sha256") or actual_size != expected.get(
             "bytes"
         ):
-            return False
-    return True
+            return False, False
+        verified_snapshot = _workspace_entry_snapshot(entry_path, expected_kind)
+        if verified_snapshot != current_snapshot:
+            return False, False
+        expected["snapshot"] = verified_snapshot
+        receipt_changed = True
+    return True, receipt_changed
 
 
 def _cached_workspace_report(
@@ -344,8 +361,18 @@ def _cached_workspace_report(
             receipt = json.loads(receipt_path.read_text())
             if receipt.get("archive") != fingerprint:
                 continue
-            if not _workspace_matches_receipt(workspace, receipt):
+            matches, receipt_changed = _workspace_matches_receipt(workspace, receipt)
+            if not matches:
                 continue
+            if receipt_changed:
+                temporary_receipt = receipt_path.with_name(receipt_path.name + ".tmp")
+                try:
+                    temporary_receipt.write_text(
+                        json.dumps(receipt, indent=2, sort_keys=True) + "\n"
+                    )
+                    temporary_receipt.replace(receipt_path)
+                finally:
+                    temporary_receipt.unlink(missing_ok=True)
             report = receipt["report"]
             return WorkspaceReport(
                 archive=str(archive),
@@ -424,6 +451,49 @@ def _hash_workspace_entry(path: Path, kind: str) -> Tuple[str, int]:
     if kind == "file":
         return _hash_file(path)
     raise ValueError("receipt contains an unsupported workspace entry kind")
+
+
+def _stat_snapshot(path: Path, kind: str, relative_path: str) -> Dict[str, Any]:
+    metadata = path.stat()
+    return {
+        "path": relative_path,
+        "kind": kind,
+        "device": metadata.st_dev,
+        "inode": metadata.st_ino,
+        "size": metadata.st_size,
+        "mtime_ns": metadata.st_mtime_ns,
+        "ctime_ns": metadata.st_ctime_ns,
+    }
+
+
+def _workspace_entry_snapshot(path: Path, kind: str) -> Dict[str, Any]:
+    if kind == "file":
+        if path.is_symlink() or not path.is_file():
+            raise ValueError("workspace entry is not a regular file: %s" % path)
+        return _stat_snapshot(path, "file", ".")
+    if kind != "directory":
+        raise ValueError("receipt contains an unsupported workspace entry kind")
+    if path.is_symlink() or not path.is_dir():
+        raise ValueError("workspace entry is not a regular directory: %s" % path)
+
+    entries = [_stat_snapshot(path, "directory", ".")]
+    for member in sorted(path.rglob("*")):
+        if member.is_symlink():
+            raise ValueError("workspace contains an unsupported link: %s" % member)
+        if member.is_dir():
+            member_kind = "directory"
+        elif member.is_file():
+            member_kind = "file"
+        else:
+            raise ValueError("workspace contains a special file: %s" % member)
+        entries.append(
+            _stat_snapshot(
+                member,
+                member_kind,
+                member.relative_to(path).as_posix(),
+            )
+        )
+    return {"kind": "directory", "entries": entries}
 
 
 def open_bundle(
@@ -659,6 +729,10 @@ def open_bundle(
                 "sha256": actual_hash,
                 "bytes": actual_size,
                 "kind": kind,
+                "snapshot": _workspace_entry_snapshot(
+                    temporary_workspace / relative_path,
+                    kind,
+                ),
             }
         receipt = {
             "version": RECEIPT_VERSION,
@@ -1208,6 +1282,29 @@ def search_workspace(workspace_path: str, query: str) -> SearchResult:
             )
             available.add(table)
 
+    has_clinical_findings = False
+    has_clinical_evidence = False
+    if "clinical_findings" in available:
+        findings_projection = clinical_findings_projection(
+            _view_columns(connection, "clinical_findings")
+        )
+        if findings_projection is not None:
+            connection.execute(
+                "CREATE VIEW searchable_clinical_findings AS "
+                "SELECT %s FROM clinical_findings AS source" % findings_projection
+            )
+            has_clinical_findings = True
+    if has_clinical_findings and "clinical_evidence" in available:
+        evidence_projection = clinical_evidence_projection(
+            _view_columns(connection, "clinical_evidence")
+        )
+        if evidence_projection is not None:
+            connection.execute(
+                "CREATE VIEW searchable_clinical_evidence AS "
+                "SELECT %s FROM clinical_evidence AS source" % evidence_projection
+            )
+            has_clinical_evidence = True
+
     normalized_query = query.strip()
     if not normalized_query:
         raise ValueError("search query cannot be empty")
@@ -1291,11 +1388,11 @@ def search_workspace(workspace_path: str, query: str) -> SearchResult:
             )
             hits.extend(_rows(cursor, "polygenic_scores"))
 
-        if "clinical_findings" in available:
+        if has_clinical_findings:
             evidence_projection = ", NULL AS evidence"
             source_predicate = ""
             source_parameters: List[Any] = []
-            if "clinical_evidence" in available:
+            if has_clinical_evidence:
                 evidence_projection = """,
                     (
                         SELECT list(
@@ -1310,14 +1407,14 @@ def search_workspace(workspace_path: str, query: str) -> SearchResult:
                             )
                             ORDER BY evidence.evidence_id
                         )
-                        FROM clinical_evidence AS evidence
+                        FROM searchable_clinical_evidence AS evidence
                         WHERE list_contains(findings.evidence_ids, evidence.evidence_id)
                     ) AS evidence
                 """
                 source_predicate = """
                     OR EXISTS (
                         SELECT 1
-                        FROM clinical_evidence AS evidence
+                        FROM searchable_clinical_evidence AS evidence
                         WHERE list_contains(findings.evidence_ids, evidence.evidence_id)
                           AND lower(evidence.source) LIKE '%' || lower(?) || '%'
                     )
@@ -1365,16 +1462,37 @@ def search_workspace(workspace_path: str, query: str) -> SearchResult:
                                END
                            )
                        END AS called_alleles,
-                       variants.quality.call_confidence AS call_confidence,
-                       variants.pathogenicity.clinvar_significance AS clinvar_significance,
-                       variants.pathogenicity.clinvar_has_conflicts AS clinvar_has_conflicts,
-                       variants.pathogenicity.clinvar_conflict_summary AS clinvar_conflict_summary,
-                       variants.pathogenicity.clinvar_review_stars AS clinvar_review_stars,
-                       variants.pathogenicity.clinvar_submitters_count AS clinvar_submitters_count,
-                       variants.pathogenicity.clinvar_id AS clinvar_id,
+                       COALESCE(
+                           variants.quality.call_confidence,
+                           findings.call_confidence
+                       ) AS call_confidence,
+                       COALESCE(
+                           variants.pathogenicity.clinvar_significance,
+                           findings.clinvar_significance
+                       ) AS clinvar_significance,
+                       COALESCE(
+                           variants.pathogenicity.clinvar_has_conflicts,
+                           findings.clinvar_has_conflicts
+                       ) AS clinvar_has_conflicts,
+                       COALESCE(
+                           variants.pathogenicity.clinvar_conflict_summary,
+                           findings.clinvar_conflict_summary
+                       ) AS clinvar_conflict_summary,
+                       COALESCE(
+                           variants.pathogenicity.clinvar_review_stars,
+                           findings.clinvar_review_stars
+                       ) AS clinvar_review_stars,
+                       COALESCE(
+                           variants.pathogenicity.clinvar_submitters_count,
+                           findings.clinvar_submitters_count
+                       ) AS clinvar_submitters_count,
+                       COALESCE(
+                           variants.pathogenicity.clinvar_id,
+                           findings.clinvar_id
+                       ) AS clinvar_id,
                        findings.evidence_ids
                        %s
-                FROM clinical_findings AS findings
+                FROM searchable_clinical_findings AS findings
                 LEFT JOIN variants
                   ON variants.variant_id = findings.variant_id
                 WHERE findings.clinical_grade = true

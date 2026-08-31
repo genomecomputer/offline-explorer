@@ -85,7 +85,7 @@
       "identity": "-",
       "hardenedRuntime": false,
       "notarize": false,
-      "artifactName": "${productName}-${version}-${arch}-preview.${ext}"
+      "artifactName": "Offline.Explorer-${version}-${arch}-preview.${ext}"
     },
     "win": {
       "icon": "assets/app-icon.png",

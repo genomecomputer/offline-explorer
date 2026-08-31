@@ -117,7 +117,7 @@ OFFLINE_EXPLORER_EXECUTABLE="$PWD/release/mac-arm64/Offline Explorer.app/Content
 Verify a downloaded release's provenance with:
 
 ```sh
-gh attestation verify "Offline Explorer-0.1.0-arm64-preview.zip" --repo genomecomputer/offline-explorer
+gh attestation verify "Offline.Explorer-0.1.0-arm64-preview.zip" --repo genomecomputer/offline-explorer
 ```
 
 The development launcher installs DuckDB from a prebuilt Python wheel. Do not compile DuckDB from source. Do not run `npm run package`, `npm run dist`, or the PyInstaller build merely to test ordinary source changes.

@@ -54,7 +54,7 @@ jobs:
         shell: bash
         run: |
           preview_version=$(node -p "require('./package.json').version")
-          preview_zip="release/Offline Explorer-${preview_version}-arm64-preview.zip"
+          preview_zip="release/Offline.Explorer-${preview_version}-arm64-preview.zip"
           if [[ ! -f "$preview_zip" ]]; then
             echo "Missing expected preview ZIP: $preview_zip" >&2
             exit 1

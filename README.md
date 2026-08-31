@@ -30,11 +30,13 @@ Offline Explorer is an open-source desktop application for browsing compatible `
 - Browse personal results, clinical findings, pharmacogenomics, polygenic scores, research associations, and raw variants.
 - Distinguish recorded findings from missing matches, unavailable analyses, and non-callable positions.
 - Explore genomic regions with variant tracks, callability context, coverage information, and bounded pagination.
-- Save bundle-specific results with notes and export them as JSON or CSV.
+- Save bundle-specific results and export them as JSON or CSV.
 
 ## Download
 
-Preview builds for macOS on Apple silicon are available from [GitHub Releases](https://github.com/genomecomputer/offline-explorer/releases).
+Preview builds for macOS on Apple silicon are available from [GitHub Releases](https://github.com/genomecomputer/offline-explorer/releases). New preview releases include a SHA-256 checksum and a GitHub build-provenance attestation.
+
+These previews are ad-hoc signed but not yet notarized with Apple. macOS will identify the developer as unverified. To open a preview, Control-click the app in Finder, choose **Open**, then confirm **Open**. Never disable Gatekeeper globally.
 
 ## The `.genome` bundle
 

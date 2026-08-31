@@ -251,16 +251,24 @@ def main() -> None:
         type=Path,
         help=argparse.SUPPRESS,
     )
+    parser.add_argument(
+        "--parent-liveness-fd",
+        type=int,
+        help=argparse.SUPPRESS,
+    )
     args = parser.parse_args()
     if args.desktop_backend:
         if args.archive is not None or args.batch or args.serve:
             parser.error("--desktop-backend cannot be combined with archive commands")
         if args.workspace_root is None:
             parser.error("--desktop-backend requires --workspace-root")
+        if args.parent_liveness_fd is None or args.parent_liveness_fd < 0:
+            parser.error("--desktop-backend requires --parent-liveness-fd")
         serve_desktop(
             workspace_root=args.workspace_root.expanduser().resolve(),
             force_validate=args.verify,
             port=args.port,
+            parent_liveness_fd=args.parent_liveness_fd,
         )
         return
     if args.batch and args.archive is None:

@@ -12,11 +12,16 @@
     "test:python": "node scripts/run-python-tests.mjs",
     "test": "npm run typecheck && npm run build:electron && node --test .electron-dist/*.test.js && npm run test:python",
     "test:e2e": "npm run build:electron && playwright test",
+    "test:package": "node --test scripts/packaged-release.test.mjs",
+    "verify:mac-preview": "node scripts/verify-macos-preview.mjs",
     "build:engine": "./prototype/build engine",
     "package": "npm run build:electron && npm run build:engine && electron-builder --dir",
-    "dist": "npm run build:electron && npm run build:engine && electron-builder"
+    "dist": "npm run build:electron && npm run build:engine && electron-builder",
+    "dist:mac-preview": "npm run build:electron && npm run build:engine && electron-builder --mac zip --arm64"
   },
   "devDependencies": {
+    "@electron/asar": "3.4.1",
+    "@electron/fuses": "1.8.0",
     "@playwright/test": "1.62.1",
     "@types/node": "26.2.0",
     "electron": "43.4.0",
@@ -27,23 +32,49 @@
     "appId": "org.genomecomputer.offline-explorer",
     "productName": "Offline Explorer",
     "asar": true,
+    "electronFuses": {
+      "runAsNode": false,
+      "enableNodeOptionsEnvironmentVariable": false,
+      "enableNodeCliInspectArguments": false,
+      "enableEmbeddedAsarIntegrityValidation": true,
+      "onlyLoadAppFromAsar": true,
+      "loadBrowserProcessSpecificV8Snapshot": false,
+      "grantFileProtocolExtraPrivileges": false
+    },
     "directories": {
       "output": "release"
     },
     "files": [
-      ".electron-dist/**/*",
+      ".electron-dist/*.js",
+      "!.electron-dist/*.test.js",
       "package.json"
     ],
     "extraResources": [
       {
         "from": "dist/offline-explorer-engine",
         "to": "engine"
+      },
+      {
+        "from": "LICENSE",
+        "to": "licenses/OFFLINE-EXPLORER-LICENSE.txt"
+      },
+      {
+        "from": "node_modules/electron/LICENSE",
+        "to": "licenses/ELECTRON-LICENSE.txt"
+      },
+      {
+        "from": "node_modules/electron/dist/LICENSES.chromium.html",
+        "to": "licenses/ELECTRON-THIRD-PARTY-NOTICES.html"
       }
     ],
     "mac": {
       "category": "public.app-category.medical",
       "icon": "assets/app-icon.png",
-      "target": ["zip"]
+      "target": ["zip"],
+      "identity": "-",
+      "hardenedRuntime": false,
+      "notarize": false,
+      "artifactName": "${productName}-${version}-${arch}-preview.${ext}"
     },
     "win": {
       "icon": "assets/app-icon.png",

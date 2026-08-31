@@ -23,6 +23,7 @@ import { migrateLegacyUserData } from "./user-data-migration";
 
 const repositoryRoot = path.resolve(__dirname, "..");
 const startupTimeoutMilliseconds = 90_000;
+const parentLivenessFileDescriptor = 3;
 
 let backendProcess: ChildProcess | null = null;
 let backendReady: BackendReady | null = null;
@@ -67,16 +68,30 @@ function startBackend(): Promise<BackendReady> {
   const executable = backendExecutable();
   const child = spawn(
     executable.command,
-    [...executable.args, "--desktop-backend", "--workspace-root", workspaceRoot],
+    [
+      ...executable.args,
+      "--desktop-backend",
+      "--workspace-root",
+      workspaceRoot,
+      "--parent-liveness-fd",
+      String(parentLivenessFileDescriptor),
+    ],
     {
       cwd: executable.cwd,
       env: { ...process.env, PYTHONDONTWRITEBYTECODE: "1" },
-      stdio: ["ignore", "pipe", "pipe"],
+      stdio: ["ignore", "pipe", "pipe", "pipe"],
       windowsHide: true,
     },
   );
   backendProcess = child;
-  child.stderr.resume();
+  const childStdout = child.stdout;
+  const childStderr = child.stderr;
+  if (!childStdout || !childStderr || !child.stdio[parentLivenessFileDescriptor]) {
+    child.kill();
+    backendProcess = null;
+    throw new Error("The local genome engine pipes could not be created.");
+  }
+  childStderr.resume();
 
   if (process.env.OFFLINE_EXPLORER_TEST_PID_FILE) {
     writeFileSync(process.env.OFFLINE_EXPLORER_TEST_PID_FILE, `${child.pid}\n`, {
@@ -87,7 +102,7 @@ function startBackend(): Promise<BackendReady> {
 
   return new Promise((resolve, reject) => {
     let settled = false;
-    const output = readline.createInterface({ input: child.stdout });
+    const output = readline.createInterface({ input: childStdout });
     const timer = setTimeout(() => {
       if (settled) return;
       settled = true;
@@ -355,11 +370,19 @@ async function createWindow(): Promise<void> {
   });
 
   await mainWindow.loadURL(loadingPage("Starting the private local engine..."));
-  mainWindow.show();
+  if (process.env.OFFLINE_EXPLORER_TEST_HEADLESS !== "1") {
+    mainWindow.show();
+  }
 
   try {
     const ready = await startBackend();
     await mainWindow.loadURL(ready.url);
+    if (process.env.OFFLINE_EXPLORER_TEST_READY_FILE) {
+      writeFileSync(process.env.OFFLINE_EXPLORER_TEST_READY_FILE, "ready\n", {
+        encoding: "utf8",
+        mode: 0o600,
+      });
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : "The private local engine could not start.";
     await mainWindow.loadURL(loadingPage(message));

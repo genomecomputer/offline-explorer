@@ -1,11 +1,15 @@
 import http.client
 import json
+import os
 import tempfile
 import threading
 import unittest
 from pathlib import Path
 
-from prototype.selective_reader.server import LocalExplorerServer
+from prototype.selective_reader.server import (
+    LocalExplorerServer,
+    _shutdown_when_parent_pipe_closes,
+)
 
 
 class DesktopServerTest(unittest.TestCase):
@@ -61,6 +65,29 @@ class DesktopServerTest(unittest.TestCase):
         self.assertEqual(self.server.server_address[0], "127.0.0.1")
         self.assertGreater(self.server.server_port, 0)
         self.assertTrue(self.server.url.startswith(self.server.origin))
+
+
+class ParentLivenessTest(unittest.TestCase):
+    def test_parent_pipe_eof_requests_server_shutdown(self):
+        shutdown_requested = threading.Event()
+
+        class TestServer:
+            def shutdown(self):
+                shutdown_requested.set()
+
+        read_fd, write_fd = os.pipe()
+        monitor = threading.Thread(
+            target=_shutdown_when_parent_pipe_closes,
+            args=(TestServer(), read_fd),
+            daemon=True,
+        )
+        monitor.start()
+
+        os.close(write_fd)
+
+        monitor.join(timeout=2)
+        self.assertFalse(monitor.is_alive())
+        self.assertTrue(shutdown_requested.is_set())
 
 
 if __name__ == "__main__":

@@ -18,13 +18,15 @@ cd "$repo_dir"
 
 case "${1:-cli}" in
   engine)
-    exec "$runtime_dir/bin/python" -m PyInstaller \
+    "$runtime_dir/bin/python" -m PyInstaller \
       --noconfirm \
       --clean \
       --name offline-explorer-engine \
       --paths "$repo_dir" \
       --hidden-import uuid \
       prototype/entrypoint.py
+    exec "$runtime_dir/bin/python" scripts/collect-engine-licenses.py \
+      "$repo_dir/dist/offline-explorer-engine/licenses"
     ;;
   cli)
     exec "$runtime_dir/bin/python" -m PyInstaller \

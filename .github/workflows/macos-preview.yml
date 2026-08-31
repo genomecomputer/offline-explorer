@@ -1,0 +1,125 @@
+name: macOS ARM preview
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+concurrency:
+  group: macos-preview-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: |
+            prototype/requirements.txt
+            prototype/build-requirements.txt
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run standard checks
+        run: npm test
+
+      - name: Build macOS ARM preview
+        run: npm run dist:mac-preview
+
+      - name: Locate preview artifact
+        id: artifact
+        shell: bash
+        run: |
+          preview_version=$(node -p "require('./package.json').version")
+          preview_zip="release/Offline Explorer-${preview_version}-arm64-preview.zip"
+          if [[ ! -f "$preview_zip" ]]; then
+            echo "Missing expected preview ZIP: $preview_zip" >&2
+            exit 1
+          fi
+          echo "zip=$preview_zip" >> "$GITHUB_OUTPUT"
+          echo "checksum=${preview_zip}.sha256" >> "$GITHUB_OUTPUT"
+
+      - name: Validate release tag
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          preview_version=$(node -p "require('./package.json').version")
+          case "$GITHUB_REF_NAME" in
+            "v${preview_version}"|"v${preview_version}-"*) ;;
+            *)
+              echo "Tag $GITHUB_REF_NAME does not match package version $preview_version." >&2
+              exit 1
+              ;;
+          esac
+
+      - name: Verify final ZIP contents
+        shell: bash
+        run: |
+          preview_directory=$(mktemp -d)
+          ditto -x -k "${{ steps.artifact.outputs.zip }}" "$preview_directory"
+          npm run verify:mac-preview -- "$preview_directory/Offline Explorer.app"
+          OFFLINE_EXPLORER_EXECUTABLE="$preview_directory/Offline Explorer.app/Contents/MacOS/Offline Explorer" npm run test:package
+
+      - name: Generate SHA-256 checksum
+        shell: bash
+        run: |
+          preview_zip="${{ steps.artifact.outputs.zip }}"
+          checksum_path="${{ steps.artifact.outputs.checksum }}"
+          cd release
+          shasum -a 256 "$(basename "$preview_zip")" > "$(basename "$checksum_path")"
+
+      - name: Attest preview provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-path: ${{ steps.artifact.outputs.zip }}
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: offline-explorer-macos-arm-preview
+          if-no-files-found: error
+          path: |
+            ${{ steps.artifact.outputs.zip }}
+            ${{ steps.artifact.outputs.checksum }}
+
+      - name: Publish tagged preview
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          release_tag="$GITHUB_REF_NAME"
+          preview_zip="${{ steps.artifact.outputs.zip }}"
+          checksum_path="${{ steps.artifact.outputs.checksum }}"
+          if gh release view "$release_tag" >/dev/null 2>&1; then
+            gh release upload "$release_tag" "$preview_zip" "$checksum_path" --clobber
+          else
+            gh release create "$release_tag" "$preview_zip" "$checksum_path" \
+              --prerelease \
+              --verify-tag \
+              --generate-notes \
+              --title "Offline Explorer ${release_tag} preview"
+          fi

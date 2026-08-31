@@ -8,6 +8,10 @@ const sampleBundle = process.env.OFFLINE_EXPLORER_TEST_BUNDLE;
 const clinicalBundle = process.env.OFFLINE_EXPLORER_CLINICAL_TEST_BUNDLE;
 const currentBundle = process.env.OFFLINE_EXPLORER_CURRENT_TEST_BUNDLE;
 
+if (!sampleBundle || !existsSync(sampleBundle)) {
+  throw new Error("Set OFFLINE_EXPLORER_TEST_BUNDLE to a purpose-built synthetic bundle.");
+}
+
 function processIsAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
@@ -27,8 +31,6 @@ async function waitForProcessExit(pid: number): Promise<void> {
 }
 
 test("opens, searches, reuses a bundle, and owns engine shutdown", async () => {
-  test.skip(!sampleBundle || !existsSync(sampleBundle), "Set OFFLINE_EXPLORER_TEST_BUNDLE to a synthetic bundle.");
-
   const userData = mkdtempSync(path.join(os.tmpdir(), "offline-explorer-electron-"));
   const pidFile = path.join(userData, "engine.pid");
   const exportDirectory = path.join(userData, "exports");

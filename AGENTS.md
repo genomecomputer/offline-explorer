@@ -98,6 +98,27 @@ OFFLINE_EXPLORER_TEST_BUNDLE=/absolute/path/to/sample.genome.tar.gz npm run test
 ```
 
 `OFFLINE_EXPLORER_CURRENT_TEST_BUNDLE` and `OFFLINE_EXPLORER_CLINICAL_TEST_BUNDLE` enable the current-format and clinical fixture scenarios when those synthetic bundles are available.
+`npm run test:e2e` fails when the required base synthetic fixture is absent instead of reporting a successful run with every scenario skipped.
+
+## Unsigned macOS previews
+
+The `macOS ARM preview` GitHub Actions workflow builds preview ZIPs on an Apple silicon runner. It runs the standard checks, builds the packaged Python engine and Electron app, verifies the final ZIP contents, checks parent-crash cleanup against that exact executable, publishes a SHA-256 checksum, and creates a GitHub build-provenance attestation.
+
+Pushing a `v*` tag publishes a prerelease. A manual workflow run produces the same downloadable workflow artifact without creating a GitHub Release. The workflow intentionally has no Apple credentials: previews are completely ad-hoc signed and will require macOS's per-app Control-click and Open override.
+
+To inspect a local macOS ARM preview without launching its interface:
+
+```sh
+npm run dist:mac-preview
+npm run verify:mac-preview -- "release/mac-arm64/Offline Explorer.app"
+OFFLINE_EXPLORER_EXECUTABLE="$PWD/release/mac-arm64/Offline Explorer.app/Contents/MacOS/Offline Explorer" npm run test:package
+```
+
+Verify a downloaded release's provenance with:
+
+```sh
+gh attestation verify "Offline Explorer-0.1.0-arm64-preview.zip" --repo genomecomputer/offline-explorer
+```
 
 The development launcher installs DuckDB from a prebuilt Python wheel. Do not compile DuckDB from source. Do not run `npm run package`, `npm run dist`, or the PyInstaller build merely to test ordinary source changes.
 

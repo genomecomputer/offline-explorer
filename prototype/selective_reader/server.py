@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import secrets
 import threading
 import webbrowser
@@ -662,6 +663,23 @@ def _run_server(
             pass
 
 
+def _shutdown_when_parent_pipe_closes(
+    server: LocalExplorerServer,
+    parent_liveness_fd: int,
+) -> None:
+    try:
+        while os.read(parent_liveness_fd, 1):
+            pass
+    except OSError:
+        pass
+    finally:
+        try:
+            os.close(parent_liveness_fd)
+        except OSError:
+            pass
+        server.shutdown()
+
+
 def serve(
     report: WorkspaceReport,
     workspace_root: Path,
@@ -691,11 +709,22 @@ def serve_launcher(
     _run_server(server, open_browser)
 
 
-def serve_desktop(workspace_root: Path, force_validate: bool, port: int) -> None:
+def serve_desktop(
+    workspace_root: Path,
+    force_validate: bool,
+    port: int,
+    parent_liveness_fd: int,
+) -> None:
+    os.fstat(parent_liveness_fd)
     server = LocalExplorerServer(
         None,
         port,
         workspace_root=workspace_root,
         force_validate=force_validate,
     )
+    threading.Thread(
+        target=_shutdown_when_parent_pipe_closes,
+        args=(server, parent_liveness_fd),
+        daemon=True,
+    ).start()
     _run_server(server, open_browser=False, desktop_backend=True)

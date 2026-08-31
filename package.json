@@ -17,7 +17,7 @@
     "build:engine": "./prototype/build engine",
     "package": "npm run build:electron && npm run build:engine && electron-builder --dir",
     "dist": "npm run build:electron && npm run build:engine && electron-builder",
-    "dist:mac-preview": "npm run build:electron && npm run build:engine && electron-builder --mac zip --arm64"
+    "dist:mac-preview": "npm run build:electron && npm run build:engine && electron-builder --mac zip --arm64 --publish never"
   },
   "devDependencies": {
     "@electron/asar": "3.4.1",

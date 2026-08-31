@@ -23,6 +23,7 @@ case "${1:-cli}" in
       --clean \
       --name offline-explorer-engine \
       --paths "$repo_dir" \
+      --add-data "$repo_dir/assets/genome-computer-sunflower.png:assets" \
       --hidden-import uuid \
       prototype/entrypoint.py
     exec "$runtime_dir/bin/python" scripts/collect-engine-licenses.py \
@@ -35,6 +36,7 @@ case "${1:-cli}" in
       --onefile \
       --name offline-explorer \
       --paths "$repo_dir" \
+      --add-data "$repo_dir/assets/genome-computer-sunflower.png:assets" \
       --hidden-import uuid \
       prototype/entrypoint.py
     ;;

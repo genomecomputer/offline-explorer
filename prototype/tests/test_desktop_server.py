@@ -66,6 +66,18 @@ class DesktopServerTest(unittest.TestCase):
         self.assertGreater(self.server.server_port, 0)
         self.assertTrue(self.server.url.startswith(self.server.origin))
 
+    def test_desktop_page_uses_the_embedded_sunflower_in_dark_mode(self):
+        connection = http.client.HTTPConnection("127.0.0.1", self.server.server_port)
+        connection.request("GET", self.server.base_path + "/")
+        response = connection.getresponse()
+        page = response.read().decode("utf-8")
+        connection.close()
+
+        self.assertEqual(response.status, 200)
+        self.assertIn('<meta name="color-scheme" content="dark">', page)
+        self.assertIn('src="data:image/png;base64,', page)
+        self.assertNotIn("__SUNFLOWER_DATA_URI__", page)
+
 
 class ParentLivenessTest(unittest.TestCase):
     def test_parent_pipe_eof_requests_server_shutdown(self):

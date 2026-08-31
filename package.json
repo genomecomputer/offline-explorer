@@ -59,6 +59,14 @@
         "to": "licenses/OFFLINE-EXPLORER-LICENSE.txt"
       },
       {
+        "from": "TRADEMARKS.md",
+        "to": "licenses/OFFLINE-EXPLORER-TRADEMARKS.md"
+      },
+      {
+        "from": "assets/genome-computer-sunflower.png",
+        "to": "brand/genome-computer-sunflower.png"
+      },
+      {
         "from": "node_modules/electron/LICENSE",
         "to": "licenses/ELECTRON-LICENSE.txt"
       },

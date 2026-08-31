@@ -75,8 +75,10 @@ async function main() {
   );
   for (const relativePath of [
     "licenses/OFFLINE-EXPLORER-LICENSE.txt",
+    "licenses/OFFLINE-EXPLORER-TRADEMARKS.md",
     "licenses/ELECTRON-LICENSE.txt",
     "licenses/ELECTRON-THIRD-PARTY-NOTICES.html",
+    "brand/genome-computer-sunflower.png",
     "engine/licenses/DUCKDB-LICENSE.txt",
     "engine/licenses/PYINSTALLER-LICENSE.txt",
     "engine/licenses/PYTHON-LICENSE.txt",

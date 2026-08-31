@@ -50,6 +50,8 @@ Contributor setup, development commands, architecture guidance, and genomic-data
 
 Offline Explorer is available under the [Apache License 2.0](LICENSE).
 
+The Genome Computer name, logo, and sunflower mark are not licensed under Apache 2.0. See [TRADEMARKS.md](TRADEMARKS.md) for permitted use.
+
 <p align="center">
   <a href="https://genome.computer">
     <img src="assets/genome-computer-sunflower.png" width="48" alt="Genome Computer sunflower">

@@ -4,13 +4,14 @@ import {
   dialog,
   ipcMain,
   Menu,
+  nativeTheme,
   type MenuItemConstructorOptions,
   type MessageBoxOptions,
   session,
   shell,
 } from "electron";
 import { spawn, type ChildProcess } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import readline from "node:readline";
 
@@ -31,6 +32,7 @@ let mainWindow: BrowserWindow | null = null;
 let isQuitting = false;
 
 app.setName("Offline Explorer");
+nativeTheme.themeSource = "dark";
 if (process.env.OFFLINE_EXPLORER_USER_DATA) {
   app.setPath("userData", path.resolve(process.env.OFFLINE_EXPLORER_USER_DATA));
 }
@@ -307,10 +309,14 @@ function installMenu(): void {
 }
 
 function loadingPage(message: string): string {
+  const sunflowerPath = app.isPackaged
+    ? path.join(process.resourcesPath, "brand", "genome-computer-sunflower.png")
+    : path.join(repositoryRoot, "assets", "genome-computer-sunflower.png");
+  const sunflowerDataUrl = `data:image/png;base64,${readFileSync(sunflowerPath).toString("base64")}`;
   return `data:text/html;charset=utf-8,${encodeURIComponent(`<!doctype html>
-    <html><head><meta charset="utf-8"><meta name="color-scheme" content="light">
-    <style>html,body{height:100%;margin:0}body{display:grid;place-items:center;background:#f6f8f5;color:#17211d;font:16px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.card{text-align:center}.mark{width:46px;height:46px;margin:0 auto 20px;border-radius:14px;background:#153d2f;color:white;display:grid;place-items:center;font-size:22px}.muted{color:#65716c}</style>
-    </head><body><main class="card"><div class="mark">O</div><h1>Offline Explorer</h1><p class="muted">${message}</p></main></body></html>`)}`;
+    <html><head><meta charset="utf-8"><meta name="color-scheme" content="dark">
+    <style>html,body{height:100%;margin:0}body{display:grid;place-items:center;background:#171717;color:#faf8f5;font:16px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;-webkit-font-smoothing:antialiased}.card{text-align:center}.mark{width:44px;height:68px;margin:0 auto 18px;object-fit:contain;filter:drop-shadow(0 8px 18px rgba(0,0,0,.32))}h1{margin:0;font-size:24px;letter-spacing:-.035em}.muted{margin:10px 0 0;color:#c9c2bb;font-size:13px}</style>
+    </head><body><main class="card"><img class="mark" src="${sunflowerDataUrl}" alt=""><h1>Offline Explorer</h1><p class="muted">${message}</p></main></body></html>`)}`;
 }
 
 async function confirmExternalReference(url: string): Promise<void> {
@@ -343,7 +349,7 @@ async function createWindow(): Promise<void> {
     minWidth: 820,
     minHeight: 640,
     show: false,
-    backgroundColor: "#f6f8f5",
+    backgroundColor: "#171717",
     title: "Offline Explorer",
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),

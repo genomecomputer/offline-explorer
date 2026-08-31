@@ -9,7 +9,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional
 
-from .core import WorkspaceReport, json_ready, open_bundle, search_workspace
+from .core import (
+    WorkspaceReport,
+    is_supported_bundle_path,
+    json_ready,
+    open_bundle,
+    search_workspace,
+)
 from .server import serve, serve_desktop, serve_launcher
 
 
@@ -109,7 +115,7 @@ end run
 
 def _choose_macos_archive() -> Optional[str]:
     script = """
-set selectedFile to choose file with prompt "Choose a .genome.tar.gz bundle"
+set selectedFile to choose file with prompt "Choose a .genome.tar.gz or .genome.tar bundle"
 return POSIX path of selectedFile
 """
     while True:
@@ -122,9 +128,11 @@ return POSIX path of selectedFile
         if result.returncode != 0:
             return None
         archive = result.stdout.strip()
-        if archive.endswith(".genome.tar.gz") and Path(archive).is_file():
+        if is_supported_bundle_path(archive) and Path(archive).is_file():
             return archive
-        _show_macos_error("Choose a file ending in .genome.tar.gz.")
+        _show_macos_error(
+            "Choose a file ending in .genome.tar.gz or .genome.tar."
+        )
 
 
 def _choose_archive() -> Optional[str]:
@@ -211,7 +219,7 @@ def main() -> None:
     parser.add_argument(
         "archive",
         nargs="?",
-        help="path to a .genome.tar.gz archive; omit it to choose a file",
+        help="path to a .genome.tar.gz or .genome.tar archive; omit it to choose a file",
     )
     parser.add_argument(
         "--batch",

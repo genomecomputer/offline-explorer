@@ -393,6 +393,19 @@ test("opens, searches, reuses a bundle, and owns engine shutdown", async () => {
     await expect(secondWindow.locator(".saved-result-row")).toHaveCount(0);
     await expect(secondWindow.getByRole("button", { name: /Saved results/ })).toContainText("0");
 
+    await secondWindow.getByRole("button", { name: "Manage bundles" }).click();
+    await expect(secondWindow.getByRole("heading", { name: "Choose a genome bundle." })).toBeVisible();
+    await secondWindow.locator(".bundle-remove").click();
+    const removalConfirmation = secondWindow.getByRole("alertdialog", {
+      name: "Remove sample from Offline Explorer",
+    });
+    await expect(removalConfirmation).toContainText("The original bundle file will not be changed.");
+    await removalConfirmation.getByRole("button", { name: "Remove bundle" }).click();
+    await expect(secondWindow.locator(".bundle-item")).toHaveCount(0);
+    await expect(secondWindow.getByRole("heading", { name: "Explore your genome bundle privately." })).toBeVisible();
+    await expect(secondWindow.getByText("The original bundle file was not changed.")).toBeVisible();
+    expect(existsSync(sampleBundle)).toBe(true);
+
     const secondEnginePid = Number.parseInt(readFileSync(pidFile, "utf8"), 10);
     await secondApp.close();
     secondApp = undefined;

@@ -20,6 +20,7 @@ import {
   parseBackendReady,
   type BackendReady,
 } from "./backend-contract";
+import { genomeBundlePickerExtensions, isGenomeBundlePath } from "./bundle-path";
 import { lowerProcessPriority } from "./process-priority";
 import { migrateLegacyUserData } from "./user-data-migration";
 
@@ -194,7 +195,7 @@ async function chooseBundle(): Promise<Record<string, unknown>> {
       buttonLabel: "Add bundle",
       properties: ["openFile"],
       filters: [
-        { name: "Genome bundles", extensions: ["gz"] },
+        { name: "Genome bundles", extensions: genomeBundlePickerExtensions },
         { name: "All files", extensions: ["*"] },
       ],
     });
@@ -202,12 +203,12 @@ async function chooseBundle(): Promise<Record<string, unknown>> {
   }
 
   if (!archive) return backendRequest("api/status");
-  if (!archive.toLowerCase().endsWith(".genome.tar.gz")) {
+  if (!isGenomeBundlePath(archive)) {
     await dialog.showMessageBox(mainWindow, {
       type: "warning",
       title: "Choose a genome bundle",
       message: "That file is not a supported genome bundle.",
-      detail: "Choose a file ending in .genome.tar.gz.",
+      detail: "Choose a file ending in .genome.tar.gz or .genome.tar.",
     });
     return backendRequest("api/status");
   }

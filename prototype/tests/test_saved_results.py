@@ -47,6 +47,16 @@ class SavedResultsStoreTest(unittest.TestCase):
         self.assertEqual(reloaded.entries("bundle-1"), [])
         self.assertFalse(reloaded.remove("bundle-1", first["saved_id"]))
 
+    def test_removes_only_results_owned_by_the_removed_bundle(self):
+        self.store.add("bundle-1", "clopidogrel", self.record)
+        self.store.add("bundle-2", "clopidogrel", self.record)
+
+        self.assertTrue(self.store.remove_bundle("bundle-1"))
+
+        self.assertEqual(self.store.entries("bundle-1"), [])
+        self.assertEqual(len(self.store.entries("bundle-2")), 1)
+        self.assertFalse(self.store.remove_bundle("bundle-1"))
+
     def test_exports_stable_json_and_csv_from_recorded_fields(self):
         self.store.add("bundle-1", "clopidogrel", self.record)
 

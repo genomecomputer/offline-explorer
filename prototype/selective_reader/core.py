@@ -21,6 +21,8 @@ from .clinical_schema import (
 )
 
 SUPPORTED_SCHEMA_MAJOR = 1
+SUPPORTED_BUNDLE_SUFFIXES = (".genome.tar.gz", ".genome.tar")
+GZIP_MAGIC = b"\x1f\x8b"
 CHUNK_SIZE = 1024 * 1024
 MAX_MANIFEST_BYTES = 5 * 1024 * 1024
 MAX_ARCHIVE_MEMBERS = 100_000
@@ -116,6 +118,19 @@ def _safe_relative_path(name: str, root_name: str) -> Optional[str]:
         ):
             raise ValueError("archive contains an unsafe path: %s" % name)
     return relative.as_posix()
+
+
+def is_supported_bundle_path(path: str) -> bool:
+    normalized = path.casefold()
+    return any(normalized.endswith(suffix) for suffix in SUPPORTED_BUNDLE_SUFFIXES)
+
+
+def _archive_read_modes(archive: Path) -> Tuple[str, str]:
+    with archive.open("rb") as source:
+        magic = source.read(len(GZIP_MAGIC))
+    if magic == GZIP_MAGIC:
+        return "r:gz", "r|gz"
+    return "r:", "r|"
 
 
 def _safe_manifest_path(name: Any) -> str:
@@ -229,7 +244,8 @@ def _archive_budget(
 
 def _read_manifest(archive: Path) -> Tuple[str, bytes, Dict[str, Any]]:
     archive_size = archive.stat().st_size
-    with tarfile.open(str(archive), mode="r:gz") as bundle:
+    manifest_mode, _stream_mode = _archive_read_modes(archive)
+    with tarfile.open(str(archive), mode=manifest_mode) as bundle:
         root_name = None
         member_count = 0
         expanded_bytes = 0
@@ -550,7 +566,8 @@ def open_bundle(
     manifest_seen = False
 
     try:
-        with tarfile.open(str(archive), mode="r|gz") as bundle:
+        _manifest_mode, stream_mode = _archive_read_modes(archive)
+        with tarfile.open(str(archive), mode=stream_mode) as bundle:
             for member in bundle:
                 archive_member_count += 1
                 archive_expanded_bytes = _archive_budget(

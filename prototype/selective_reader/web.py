@@ -108,14 +108,16 @@ PAGE = r'''<!doctype html>
     .bundle-meta { margin: 5px 0 0; color: var(--muted); font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
     .bundle-unavailable { color: #f0aaa6; }
     .bundle-actions { display: flex; align-items: center; gap: 8px; }
-    .secondary-button, .text-button {
+    .secondary-button, .text-button, .danger-button {
       min-height: 38px; padding: 0 13px; border-radius: 10px; font-size: 13px; font-weight: 720; cursor: pointer;
     }
     .secondary-button { color: var(--button-ink); background: var(--button); border: 1px solid var(--button); }
     .secondary-button:hover { background: #e2ded8; border-color: #e2ded8; }
     .text-button { color: var(--accent-dark); background: transparent; border: 1px solid var(--line); }
     .text-button:hover { background: var(--soft); }
-    .secondary-button:disabled, .text-button:disabled { cursor: not-allowed; opacity: .5; }
+    .danger-button { color: #f2b0ac; background: transparent; border: 1px solid #653537; }
+    .danger-button:hover { color: #ffd1ce; background: #351f20; border-color: #8a494c; }
+    .secondary-button:disabled, .text-button:disabled, .danger-button:disabled { cursor: not-allowed; opacity: .5; }
     .nickname-form { display: flex; align-items: center; gap: 8px; margin-top: 9px; }
     .nickname-input {
       width: min(320px, 100%); min-height: 38px; padding: 8px 10px; color: var(--ink); background: var(--surface-raised);
@@ -123,6 +125,13 @@ PAGE = r'''<!doctype html>
     }
     .nickname-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(23,107,77,.10); }
     .nickname-error { margin: 7px 0 0; color: #f0aaa6; font-size: 12px; }
+    .bundle-remove-confirmation {
+      margin-top: 11px; padding: 13px; color: #e8d4d2; background: #2b1d1e;
+      border: 1px solid #563234; border-radius: 10px;
+    }
+    .bundle-remove-confirmation strong { display: block; color: #ffd1ce; font-size: 13px; }
+    .bundle-remove-confirmation p { margin: 5px 0 0; color: #cbaead; font-size: 12px; line-height: 1.5; }
+    .bundle-remove-actions { display: flex; align-items: center; gap: 8px; margin-top: 11px; }
     .bundle-library:not([hidden]) + .selection-status { margin-top: 13px; }
     .bundle-library:not([hidden]) ~ .open-card { margin-top: 18px; box-shadow: none; }
     .selection-status {
@@ -524,6 +533,7 @@ PAGE = r'''<!doctype html>
       .bundle-avatar { width: 38px; height: 38px; }
       .bundle-actions { grid-column: auto; justify-content: stretch; }
       .bundle-actions button { flex: 1; }
+      .bundle-remove-actions { align-items: stretch; flex-direction: column; }
       .nickname-form { align-items: stretch; flex-direction: column; }
       .nickname-input { width: 100%; }
       .directory-row { grid-template-columns: minmax(0, 1fr) 22px; gap: 8px; }
@@ -1390,6 +1400,57 @@ PAGE = r'''<!doctype html>
       nickname.select();
     }
 
+    function beginBundleRemoval(body, actions, entry) {
+      if (body.querySelector(".bundle-remove-confirmation")) return;
+      actions.hidden = true;
+      const confirmation = document.createElement("div");
+      confirmation.className = "bundle-remove-confirmation";
+      confirmation.setAttribute("role", "alertdialog");
+      confirmation.setAttribute("aria-label", `Remove ${entry.nickname} from Offline Explorer`);
+      const title = document.createElement("strong");
+      title.textContent = `Remove ${entry.nickname}?`;
+      const explanation = document.createElement("p");
+      explanation.textContent = "Cached data and saved results will be deleted. The original bundle file will not be changed.";
+      const controls = document.createElement("div");
+      controls.className = "bundle-remove-actions";
+      const remove = document.createElement("button");
+      remove.className = "danger-button";
+      remove.type = "button";
+      remove.textContent = "Remove bundle";
+      const cancel = document.createElement("button");
+      cancel.className = "text-button";
+      cancel.type = "button";
+      cancel.textContent = "Cancel";
+      const error = document.createElement("p");
+      error.className = "nickname-error";
+      error.hidden = true;
+      controls.append(remove, cancel);
+      confirmation.append(title, explanation, controls, error);
+      body.append(confirmation);
+
+      cancel.addEventListener("click", () => renderBundleLibrary(latestStatus));
+      remove.addEventListener("click", async () => {
+        remove.disabled = true;
+        cancel.disabled = true;
+        remove.textContent = "Removing";
+        error.hidden = true;
+        try {
+          const status = await postJson("/api/library/remove", {
+            bundle_id: entry.bundle_id
+          });
+          renderAppStatus(status);
+          showSelectionStatus(`Removed ${entry.nickname} from Offline Explorer. The original bundle file was not changed.`);
+        } catch (requestError) {
+          error.textContent = requestError.message;
+          error.hidden = false;
+          remove.disabled = false;
+          cancel.disabled = false;
+          remove.textContent = "Remove bundle";
+        }
+      });
+      remove.focus();
+    }
+
     async function openSavedBundle(entry) {
       showSelectionStatus(`Opening ${entry.nickname} locally.`, { busy: true });
       bundleList.querySelectorAll("button").forEach(control => { control.disabled = true; });
@@ -1432,13 +1493,19 @@ PAGE = r'''<!doctype html>
       rename.textContent = "Rename";
       rename.disabled = busy;
       rename.addEventListener("click", () => beginNicknameEdit(body, actions, entry));
+      const remove = document.createElement("button");
+      remove.className = "text-button bundle-remove";
+      remove.type = "button";
+      remove.textContent = "Remove";
+      remove.disabled = busy;
+      remove.addEventListener("click", () => beginBundleRemoval(body, actions, entry));
       const open = document.createElement("button");
       open.className = "secondary-button bundle-open";
       open.type = "button";
       open.textContent = "Open";
       open.disabled = busy || !entry.available;
       open.addEventListener("click", () => openSavedBundle(entry));
-      actions.append(rename, open);
+      actions.append(rename, remove, open);
       item.append(avatar, body, actions);
       return item;
     }
@@ -1446,7 +1513,7 @@ PAGE = r'''<!doctype html>
     function renderBundleLibrary(status) {
       latestStatus = status;
       const bundles = Array.isArray(status?.bundles) ? status.bundles : [];
-      const busy = status?.status === "choosing" || status?.status === "validating";
+      const busy = status?.status === "choosing" || status?.status === "validating" || status?.status === "removing";
       bundleLibrary.hidden = bundles.length === 0;
       bundleList.replaceChildren(...bundles.map(entry => bundleItem(entry, busy)));
       if (bundles.length) {
@@ -1531,6 +1598,10 @@ PAGE = r'''<!doctype html>
         chooseButton.textContent = "Opening bundle";
         const name = status.archive_name || "your bundle";
         showSelectionStatus(`Opening ${name} locally. New bundles may take a few minutes to verify.`, { busy: true });
+      } else if (status.status === "removing") {
+        chooseButton.disabled = true;
+        chooseButton.textContent = "Removing bundle";
+        showSelectionStatus("Removing cached bundle data from Offline Explorer.", { busy: true });
       } else if (status.status === "failed") {
         chooseButton.disabled = false;
         chooseButton.textContent = (status.bundles || []).length ? "Add another bundle" : "Choose another bundle";
@@ -1551,7 +1622,7 @@ PAGE = r'''<!doctype html>
         const response = await fetch(`${basePath}/api/status`);
         const status = await response.json();
         renderAppStatus(status);
-        if (status.status === "choosing" || status.status === "validating") scheduleStatusPoll();
+        if (status.status === "choosing" || status.status === "validating" || status.status === "removing") scheduleStatusPoll();
       } catch (error) {
         welcome.hidden = false;
         explorer.hidden = true;

@@ -215,6 +215,15 @@ class SavedResultsStore:
             self._save(bundles)
             return True
 
+    def remove_bundle(self, bundle_id: str) -> bool:
+        with self._lock:
+            bundles = self._load()
+            if bundle_id not in bundles:
+                return False
+            bundles.pop(bundle_id)
+            self._save(bundles)
+            return True
+
     def export(
         self,
         bundle_id: str,

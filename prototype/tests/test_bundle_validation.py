@@ -46,6 +46,8 @@ class BundleValidationTest(unittest.TestCase):
         declared_extras=None,
         duplicate_member=None,
         omit_declarations=(),
+        archive_name="synthetic.genome.tar.gz",
+        compression="gz",
     ):
         schema = b'{"title":"synthetic schema"}\n'
         variant = b"synthetic parquet bytes"
@@ -67,8 +69,9 @@ class BundleValidationTest(unittest.TestCase):
             "generated_at": "2026-08-25T00:00:00+00:00",
             "files": files,
         }
-        archive = self.root / "synthetic.genome.tar.gz"
-        with tarfile.open(archive, "w:gz") as bundle:
+        archive = self.root / archive_name
+        mode = "w:gz" if compression == "gz" else "w:"
+        with tarfile.open(archive, mode) as bundle:
             manifest_bytes = json.dumps(manifest, sort_keys=True).encode("utf-8")
             self._add_member(bundle, "synthetic.genome/manifest.json", manifest_bytes)
             for relative_path, content in members.items():
@@ -90,6 +93,23 @@ class BundleValidationTest(unittest.TestCase):
         workspace = Path(report.workspace)
         self.assertTrue((workspace / "schema.json").is_file())
         self.assertTrue((workspace / "variants.parquet").is_dir())
+        self.assertEqual(report.validation_mode, "full")
+
+    def test_opens_an_uncompressed_genome_tar_bundle(self):
+        archive = self._write_bundle(
+            archive_name="synthetic.genome.tar",
+            compression="none",
+        )
+
+        report = open_bundle(str(archive), self.workspace_root)
+
+        self.assertEqual(report.validation_mode, "full")
+
+    def test_opens_a_gzip_bundle_named_genome_tar(self):
+        archive = self._write_bundle(archive_name="synthetic.genome.tar")
+
+        report = open_bundle(str(archive), self.workspace_root)
+
         self.assertEqual(report.validation_mode, "full")
 
     def test_rejects_an_undeclared_file_instead_of_trusting_it(self):

@@ -38,7 +38,7 @@ def bundle_id_for_report(report: WorkspaceReport) -> str:
 
 def default_nickname(archive: str) -> str:
     name = Path(archive).name
-    for suffix in (".genome.tar.gz", ".tar.gz", ".genome"):
+    for suffix in (".genome.tar.gz", ".genome.tar", ".tar.gz", ".tar", ".genome"):
         if name.lower().endswith(suffix):
             name = name[: -len(suffix)]
             break
@@ -167,6 +167,20 @@ class BundleLibrary:
             entries = rename_bundle(self._load(), bundle_id, nickname)
             self._save(entries)
             return next(entry for entry in entries if entry.bundle_id == bundle_id)
+
+    def remove(self, bundle_id: str) -> BundleEntry:
+        with self._lock:
+            entries = self._load()
+            removed = next(
+                (entry for entry in entries if entry.bundle_id == bundle_id),
+                None,
+            )
+            if removed is None:
+                raise ValueError("bundle was not found")
+            self._save(
+                [entry for entry in entries if entry.bundle_id != bundle_id]
+            )
+            return removed
 
     def public_entries(self) -> List[Dict[str, Any]]:
         return [

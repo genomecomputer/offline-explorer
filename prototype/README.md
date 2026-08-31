@@ -1,7 +1,7 @@
 # Selective reader prototype
 
 This throwaway prototype answers one question: can Offline Explorer fully
-validate a compressed `.genome` bundle while storing only the JSON and Parquet
+validate a `.genome.tar.gz` or `.genome.tar` bundle while storing only the JSON and Parquet
 files needed for deterministic local search?
 
 Run it with:
@@ -53,6 +53,6 @@ modifies the source archive and does not make network requests after the first
 prebuilt DuckDB package download.
 
 The first open performs full manifest and hash validation and writes a local
-validation receipt. Later opens reuse that workspace only while the archive's
-path, size, modification time, device, and inode still match and retained file
-sizes remain intact. Pass `--verify` to force full validation again.
+validation receipt. Later opens reuse that workspace while the source archive
+and cached file metadata remain unchanged, with hash verification as a fallback
+when metadata changes. Pass `--verify` to force full validation again.

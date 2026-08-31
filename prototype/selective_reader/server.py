@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import secrets
+import shutil
 import threading
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -13,6 +15,7 @@ from urllib.parse import urlsplit
 from .bundle_library import BundleLibrary
 from .core import (
     WorkspaceReport,
+    is_supported_bundle_path,
     json_ready,
     open_bundle,
     search_workspace,
@@ -26,6 +29,8 @@ from .web import PAGE
 
 MAX_REQUEST_BYTES = 256 * 1024
 MAX_QUERY_CHARACTERS = 200
+BUNDLE_ID_PATTERN = re.compile(r"^[a-f0-9]{20}$")
+BUSY_STATES = frozenset({"choosing", "validating", "removing"})
 ArchiveChooser = Callable[[], Optional[str]]
 
 
@@ -166,7 +171,7 @@ class LocalExplorerServer(ThreadingHTTPServer):
 
     def begin_selection(self) -> bool:
         with self.state_lock:
-            if self.chooser is None or self.state_status in {"choosing", "validating"}:
+            if self.chooser is None or self.state_status in BUSY_STATES:
                 return False
             self.state_status = "choosing"
             self.state_error = ""
@@ -180,10 +185,12 @@ class LocalExplorerServer(ThreadingHTTPServer):
 
     def begin_open_path(self, archive: str) -> bool:
         path = Path(archive).expanduser()
-        if not archive.lower().endswith(".genome.tar.gz") or not path.is_file():
-            raise ValueError("choose a file ending in .genome.tar.gz")
+        if not is_supported_bundle_path(archive) or not path.is_file():
+            raise ValueError(
+                "choose a file ending in .genome.tar.gz or .genome.tar"
+            )
         with self.state_lock:
-            if self.state_status in {"choosing", "validating"}:
+            if self.state_status in BUSY_STATES:
                 return False
             self.state_status = "validating"
             self.state_error = ""
@@ -201,7 +208,7 @@ class LocalExplorerServer(ThreadingHTTPServer):
 
     def show_library(self) -> bool:
         with self.state_lock:
-            if self.state_status in {"choosing", "validating"}:
+            if self.state_status in BUSY_STATES:
                 return False
             self.report = None
             self.state_status = "waiting"
@@ -219,7 +226,7 @@ class LocalExplorerServer(ThreadingHTTPServer):
         if entry is None:
             return False
         with self.state_lock:
-            if self.state_status in {"choosing", "validating"}:
+            if self.state_status in BUSY_STATES:
                 return False
             self.report = None
             self.state_status = "validating"
@@ -242,6 +249,46 @@ class LocalExplorerServer(ThreadingHTTPServer):
         with self.state_lock:
             if self.active_bundle_id == bundle_id:
                 self.active_nickname = entry.nickname
+
+    def remove_bundle(self, bundle_id: str) -> None:
+        if self.library is None or self.workspace_root is None:
+            raise ValueError("local bundle library is unavailable")
+        if not BUNDLE_ID_PATTERN.fullmatch(bundle_id):
+            raise ValueError("bundle removal request is invalid")
+        with self.state_lock:
+            if self.state_status != "waiting":
+                raise ValueError("return to the bundle library before removing a bundle")
+            self.state_status = "removing"
+
+        workspace_root = self.workspace_root.resolve()
+        workspace = self.workspace_root / bundle_id
+        try:
+            if self.library.find(bundle_id) is None:
+                raise ValueError("bundle was not found")
+            if workspace.parent.resolve() != workspace_root or workspace.is_symlink():
+                raise ValueError("cached bundle workspace is unsafe")
+            if workspace.exists():
+                if not workspace.is_dir():
+                    raise ValueError("cached bundle workspace is unsafe")
+                shutil.rmtree(workspace)
+            self.library.remove(bundle_id)
+            if self.saved_results is not None:
+                self.saved_results.remove_bundle(bundle_id)
+            with self.map_lock:
+                self.genome_map_cache.pop(str(workspace), None)
+        except Exception:
+            with self.state_lock:
+                self.state_status = "waiting"
+            raise
+
+        with self.state_lock:
+            self.report = None
+            self.state_status = "waiting"
+            self.state_error = ""
+            self.archive_name = ""
+            self.active_bundle_id = ""
+            self.active_nickname = ""
+            self.topics = []
 
     def _selected_bundle_id(self) -> str:
         with self.state_lock:
@@ -527,6 +574,19 @@ class LocalExplorerHandler(BaseHTTPRequestHandler):
                 self._send_json(200, self.server.status_payload())
             except (ValueError, json.JSONDecodeError) as error:
                 self._send_json(400, {"error": str(error)})
+            return
+        if path == self.server.base_path + "/api/library/remove":
+            try:
+                payload = self._read_json_body()
+                bundle_id = payload.get("bundle_id")
+                if not isinstance(bundle_id, str) or not bundle_id:
+                    raise ValueError("bundle removal request is invalid")
+                self.server.remove_bundle(bundle_id)
+                self._send_json(200, self.server.status_payload())
+            except (ValueError, json.JSONDecodeError) as error:
+                self._send_json(400, {"error": str(error)})
+            except OSError:
+                self._send_json(500, {"error": "bundle could not be removed"})
             return
         if path == self.server.base_path + "/api/saved/add":
             try:

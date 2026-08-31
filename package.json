@@ -14,12 +14,15 @@
     "test:e2e": "npm run build:electron && playwright test",
     "test:package": "node --test scripts/packaged-release.test.mjs",
     "verify:mac-preview": "node scripts/verify-macos-preview.mjs",
+    "build:electron-licenses": "node scripts/collect-electron-licenses.mjs",
     "build:engine": "./prototype/build engine",
-    "package": "npm run build:electron && npm run build:engine && electron-builder --dir",
-    "dist": "npm run build:electron && npm run build:engine && electron-builder",
-    "dist:mac-preview": "npm run build:electron && npm run build:engine && electron-builder --mac zip --arm64 --publish never"
+    "package": "npm run build:electron && npm run build:electron-licenses && npm run build:engine && electron-builder --dir",
+    "dist": "npm run build:electron && npm run build:electron-licenses && npm run build:engine && electron-builder",
+    "dist:mac-preview": "npm run build:electron && npm run build:electron-licenses && npm run build:engine && electron-builder --mac zip --arm64 --publish never"
   },
   "devDependencies": {
+    "@electron/get": "5.1.0",
+    "@electron-internal/extract-zip": "1.0.5",
     "@electron/asar": "3.4.1",
     "@electron/fuses": "1.8.0",
     "@playwright/test": "1.62.1",
@@ -67,11 +70,11 @@
         "to": "brand/genome-computer-sunflower.png"
       },
       {
-        "from": "node_modules/electron/LICENSE",
+        "from": "dist/electron-licenses/LICENSE",
         "to": "licenses/ELECTRON-LICENSE.txt"
       },
       {
-        "from": "node_modules/electron/dist/LICENSES.chromium.html",
+        "from": "dist/electron-licenses/LICENSES.chromium.html",
         "to": "licenses/ELECTRON-THIRD-PARTY-NOTICES.html"
       }
     ],

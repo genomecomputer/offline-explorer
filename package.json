@@ -35,6 +35,7 @@
     "appId": "org.genomecomputer.offline-explorer",
     "productName": "Offline Explorer",
     "asar": true,
+    "afterSign": "scripts/refresh-adhoc-macos-signature.cjs",
     "electronFuses": {
       "runAsNode": false,
       "enableNodeOptionsEnvironmentVariable": false,

@@ -122,14 +122,21 @@ class BundleLibrary:
             return []
         try:
             payload = json.loads(self.path.read_text(encoding="utf-8"))
-            if payload.get("version") != LIBRARY_VERSION:
-                return []
-            entries = payload.get("bundles")
-            if not isinstance(entries, list):
-                return []
-            return [BundleEntry(**entry) for entry in entries if isinstance(entry, dict)]
-        except (OSError, TypeError, ValueError, json.JSONDecodeError):
-            return []
+        except (OSError, TypeError, ValueError, json.JSONDecodeError) as error:
+            raise ValueError("bundle library file is invalid") from error
+        if not isinstance(payload, dict):
+            raise ValueError("bundle library file is invalid")
+        if payload.get("version") != LIBRARY_VERSION:
+            raise ValueError("bundle library file uses an unsupported version")
+        entries = payload.get("bundles")
+        if not isinstance(entries, list) or not all(
+            isinstance(entry, dict) for entry in entries
+        ):
+            raise ValueError("bundle library file is invalid")
+        try:
+            return [BundleEntry(**entry) for entry in entries]
+        except (TypeError, ValueError) as error:
+            raise ValueError("bundle library file is invalid") from error
 
     def _save(self, entries: List[BundleEntry]) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)

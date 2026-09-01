@@ -1,4 +1,6 @@
 import csv
+from datetime import date, datetime, timezone
+from decimal import Decimal
 import io
 import json
 import tempfile
@@ -115,10 +117,26 @@ class SavedResultsStoreTest(unittest.TestCase):
             "'=HYPERLINK(\"https://example.test\",\"open\")",
         )
 
-    def test_ignores_a_corrupt_local_store(self):
+    def test_refuses_to_overwrite_a_corrupt_local_store(self):
         self.path.write_text("[]", encoding="utf-8")
+        original = self.path.read_bytes()
 
-        self.assertEqual(self.store.entries("bundle-1"), [])
+        with self.assertRaisesRegex(ValueError, "saved results file is invalid"):
+            self.store.add("bundle-1", "clopidogrel", self.record)
+
+        self.assertEqual(self.path.read_bytes(), original)
+
+    def test_normalizes_duckdb_scalar_values_for_record_identity(self):
+        record = dict(
+            self.record,
+            score_value=Decimal("1.25"),
+            training_date=date(2026, 8, 14),
+            generated_at=datetime(2026, 8, 14, 10, 27, tzinfo=timezone.utc),
+        )
+
+        identifier = saved_result_id(record)
+
+        self.assertEqual(len(identifier), 24)
 
     def test_record_identity_survives_a_json_number_round_trip(self):
         record = dict(self.record, activity_score=2.0)

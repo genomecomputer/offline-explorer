@@ -75,6 +75,14 @@ class DesktopServerTest(unittest.TestCase):
         workspace = self.workspace_root / bundle_id
         workspace.mkdir(parents=True)
         (workspace / "retained.bin").write_bytes(b"cached bundle data")
+        (workspace / ".validation-receipt.json").write_text(
+            json.dumps(
+                {
+                    "version": 3,
+                    "manifest_sha256": "a" * 64,
+                }
+            )
+        )
         archive = Path(self.temporary_directory.name) / "source.genome.tar.gz"
         archive.write_bytes(b"original bundle")
         report = WorkspaceReport(
@@ -171,6 +179,20 @@ class DesktopServerTest(unittest.TestCase):
         self.assertEqual(status, 400)
         self.assertEqual(payload["error"], "cached bundle workspace is unsafe")
         self.assertTrue((outside / "keep.txt").is_file())
+        self.assertIsNotNone(self.server.library.find(bundle_id))
+
+    def test_remove_bundle_refuses_an_unowned_workspace(self):
+        bundle_id, workspace, _archive = self.register_bundle()
+        (workspace / ".validation-receipt.json").unlink()
+
+        status, payload = self.post_json(
+            "/api/library/remove",
+            {"bundle_id": bundle_id},
+        )
+
+        self.assertEqual(status, 400)
+        self.assertEqual(payload["error"], "cached bundle workspace is unsafe")
+        self.assertTrue((workspace / "retained.bin").is_file())
         self.assertIsNotNone(self.server.library.find(bundle_id))
 
 

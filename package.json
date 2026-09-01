@@ -11,7 +11,7 @@
     "dev": "npm run build:electron && electron .",
     "test:python": "node scripts/run-python-tests.mjs",
     "test": "npm run typecheck && npm run build:electron && node --test .electron-dist/*.test.js && npm run test:python",
-    "test:e2e": "npm run build:electron && playwright test",
+    "test:e2e": "npm run build:electron && node scripts/run-electron-e2e.mjs",
     "test:package": "node --test scripts/packaged-release.test.mjs",
     "verify:mac-preview": "node scripts/verify-macos-preview.mjs",
     "build:electron-licenses": "node scripts/collect-electron-licenses.mjs",

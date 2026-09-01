@@ -15,6 +15,7 @@ from urllib.parse import urlsplit
 from .bundle_library import BundleLibrary
 from .core import (
     WorkspaceReport,
+    _workspace_is_owned,
     is_supported_bundle_path,
     json_ready,
     open_bundle,
@@ -95,20 +96,36 @@ class LocalExplorerServer(ThreadingHTTPServer):
             active_nickname = self.active_nickname
             topics = self.topics
 
+        try:
+            bundles = self.library.public_entries() if self.library else []
+        except ValueError as storage_error:
+            return {
+                "status": "failed",
+                "archive_name": archive_name,
+                "bundles": [],
+                "topics": [],
+                "error": str(storage_error),
+            }
+
         payload: Dict[str, Any] = {
             "status": status,
             "archive_name": archive_name,
-            "bundles": self.library.public_entries() if self.library else [],
+            "bundles": bundles,
             "topics": topics,
         }
         if error:
             payload["error"] = error
         if status == "ready" and report is not None:
-            saved_count = (
-                len(self.saved_results.entries(active_bundle_id))
-                if self.saved_results is not None and active_bundle_id
-                else 0
-            )
+            try:
+                saved_count = (
+                    len(self.saved_results.entries(active_bundle_id))
+                    if self.saved_results is not None and active_bundle_id
+                    else 0
+                )
+            except ValueError as storage_error:
+                payload["status"] = "failed"
+                payload["error"] = str(storage_error)
+                return payload
             payload.update(
                 {
                     "schema_version": report.schema_version,
@@ -267,8 +284,8 @@ class LocalExplorerServer(ThreadingHTTPServer):
                 raise ValueError("bundle was not found")
             if workspace.parent.resolve() != workspace_root or workspace.is_symlink():
                 raise ValueError("cached bundle workspace is unsafe")
-            if workspace.exists():
-                if not workspace.is_dir():
+            if workspace.is_symlink() or workspace.exists():
+                if not _workspace_is_owned(workspace):
                     raise ValueError("cached bundle workspace is unsafe")
                 shutil.rmtree(workspace)
             self.library.remove(bundle_id)

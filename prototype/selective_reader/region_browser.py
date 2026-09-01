@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import duckdb
 
-from .core import _variant_projection, variants_for_region
+from .core import _canonical_chrom_sql, _variant_projection, variants_for_region
 from .genome_map import GRCH38_CHROMOSOMES
 
 
@@ -147,19 +147,22 @@ def _resolve_query(
     gene_index = workspace / "gene_index.parquet"
     row = None
     if gene_index.is_file():
-        row = connection.execute(
-            """
-            SELECT gene_symbol, chrom,
-                   min(start_pos)::BIGINT AS start_pos,
-                   max(end_pos)::BIGINT AS end_pos
-            FROM read_parquet(?)
-            WHERE upper(gene_symbol) = upper(?)
-            GROUP BY gene_symbol, chrom
-            ORDER BY max(end_pos) - min(start_pos) DESC
-            LIMIT 1
-            """,
-            [str(gene_index), normalized],
-        ).fetchone()
+        try:
+            row = connection.execute(
+                """
+                SELECT gene_symbol, chrom,
+                       min(start_pos)::BIGINT AS start_pos,
+                       max(end_pos)::BIGINT AS end_pos
+                FROM read_parquet(?)
+                WHERE upper(gene_symbol) = upper(?)
+                GROUP BY gene_symbol, chrom
+                ORDER BY max(end_pos) - min(start_pos) DESC
+                LIMIT 1
+                """,
+                [str(gene_index), normalized],
+            ).fetchone()
+        except duckdb.Error:
+            row = None
     if row is None:
         row = connection.execute(
             """
@@ -207,6 +210,7 @@ def _track_bins(start: int, end: int) -> List[Dict[str, Any]]:
                 "callable_bases": 0,
                 "callability_percent": None,
                 "callable_site_count": 0,
+                "site_record_count": 0,
             }
         )
     return bins
@@ -227,10 +231,10 @@ def _variant_track(
                ) AS INTEGER))) AS bin_index,
                count(*)::BIGINT AS variant_count
         FROM variants
-        WHERE lower(replace(chrom, 'chr', '')) = lower(replace(?, 'chr', ''))
+        WHERE %s = %s
           AND pos BETWEEN ? AND ?
         GROUP BY bin_index
-        """,
+        """ % (_canonical_chrom_sql("chrom"), _canonical_chrom_sql("?")),
         [
             len(bins) - 1,
             start,
@@ -265,11 +269,11 @@ def _gene_track(
             SELECT gene_symbol, chrom, start_pos, end_pos,
                    variant_count, actionable_count
             FROM read_parquet(?)
-            WHERE lower(replace(chrom, 'chr', '')) = lower(replace(?, 'chr', ''))
+            WHERE %s = %s
               AND start_pos <= ? AND end_pos >= ?
             ORDER BY start_pos, end_pos, gene_symbol
             LIMIT 200
-            """,
+            """ % (_canonical_chrom_sql("chrom"), _canonical_chrom_sql("?")),
             [str(path), chrom, end, start],
         )
         return {
@@ -330,11 +334,15 @@ def _annotation_track(
             """
             SELECT count(*)::BIGINT
             FROM variants
-            WHERE lower(replace(chrom, 'chr', '')) = lower(replace(?, 'chr', ''))
+            WHERE %s = %s
               AND pos BETWEEN ? AND ?
               AND (%s)
             """
-            % predicate,
+            % (
+                _canonical_chrom_sql("chrom"),
+                _canonical_chrom_sql("?"),
+                predicate,
+            ),
             parameters,
         ).fetchone()[0]
     )
@@ -347,7 +355,7 @@ def _annotation_track(
                %s AS is_gwas_hit,
                %s AS is_pgx
         FROM variants
-        WHERE lower(replace(chrom, 'chr', '')) = lower(replace(?, 'chr', ''))
+        WHERE %s = %s
           AND pos BETWEEN ? AND ?
           AND (%s)
         ORDER BY pos, variant_id
@@ -359,6 +367,8 @@ def _annotation_track(
             selected["clinvar_significance"],
             selected["is_gwas_hit"],
             selected["is_pgx"],
+            _canonical_chrom_sql("chrom"),
+            _canonical_chrom_sql("?"),
             predicate,
         ),
         parameters,
@@ -402,12 +412,20 @@ def _callability_track(
     if selected is None:
         return {"state": "not_included", "kind": None, "bins": bins}
     path, kind = selected
-    columns = {
-        str(row[0])
-        for row in connection.execute(
-            "DESCRIBE SELECT * FROM read_parquet(?)", [str(path)]
-        ).fetchall()
-    }
+    try:
+        columns = {
+            str(row[0])
+            for row in connection.execute(
+                "DESCRIBE SELECT * FROM read_parquet(?)", [str(path)]
+            ).fetchall()
+        }
+    except duckdb.Error:
+        return {
+            "state": "unavailable",
+            "kind": kind,
+            "source": path.name,
+            "bins": bins,
+        }
     required = {"chrom", "callable"}
     if kind == "interval_records":
         required.update({"start_pos", "end_pos"})
@@ -436,7 +454,7 @@ def _callability_track(
                 SELECT greatest(cast(start_pos AS BIGINT), ?) AS start_pos,
                        least(cast(end_pos AS BIGINT), ?) AS end_pos
                 FROM read_parquet(?)
-                WHERE lower(replace(chrom, 'chr', '')) = lower(replace(?, 'chr', ''))
+                WHERE %s = %s
                   AND callable IS TRUE
                   AND start_pos IS NOT NULL AND end_pos IS NOT NULL
                   AND start_pos <= end_pos
@@ -478,7 +496,7 @@ def _callability_track(
              AND merged.end_pos >= bins.start_pos
             GROUP BY bins.bin_index
             ORDER BY bins.bin_index
-            """,
+            """ % (_canonical_chrom_sql("chrom"), _canonical_chrom_sql("?")),
             [start, end, str(path), chrom, end, start],
         ).fetchall()
         total_callable_bases = 0
@@ -501,27 +519,36 @@ def _callability_track(
 
     rows = connection.execute(
         """
-        SELECT bins.bin_index, count(*)::BIGINT AS callable_site_count
+        SELECT bins.bin_index,
+               count(*)::BIGINT AS site_record_count,
+               count(*) FILTER (WHERE sites.callable IS TRUE)::BIGINT
+                   AS callable_site_count
         FROM read_parquet(?) AS sites
         JOIN region_bins AS bins
           ON sites.pos BETWEEN bins.start_pos AND bins.end_pos
-        WHERE lower(replace(sites.chrom, 'chr', '')) = lower(replace(?, 'chr', ''))
-          AND sites.callable IS TRUE
+        WHERE %s = %s
           AND sites.pos BETWEEN ? AND ?
         GROUP BY bins.bin_index
         ORDER BY bins.bin_index
-        """,
+        """ % (
+            _canonical_chrom_sql("sites.chrom"),
+            _canonical_chrom_sql("?"),
+        ),
         [str(path), chrom, start, end],
     ).fetchall()
+    total_records = 0
     total_sites = 0
-    for index, count in rows:
-        value = int(count)
-        bins[int(index)]["callable_site_count"] = value
-        total_sites += value
+    for index, record_count, callable_count in rows:
+        bin_row = bins[int(index)]
+        bin_row["site_record_count"] = int(record_count)
+        bin_row["callable_site_count"] = int(callable_count)
+        total_records += int(record_count)
+        total_sites += int(callable_count)
     return {
-        "state": "available" if total_sites else "included_empty",
+        "state": "available" if total_records else "included_empty",
         "kind": kind,
         "source": path.name,
+        "record_count": total_records,
         "site_count": total_sites,
         "coverage_percent": None,
         "bins": bins,

@@ -45,23 +45,34 @@ def clinical_findings_projection(columns: Set[str]) -> Optional[str]:
     if "evidence_ids" in columns:
         evidence_ids = "COALESCE(source.evidence_ids, []::VARCHAR[])"
     elif "clinvar_id" in columns:
+        variant_fallback = (
+            """
+                WHEN source.variant_id IS NOT NULL
+                    THEN [CAST(source.variant_id AS VARCHAR)]
+            """
+            if "variant_id" in columns
+            else ""
+        )
         evidence_ids = """
             CASE
                 WHEN source.clinvar_id IS NOT NULL
                     THEN [CAST(source.clinvar_id AS VARCHAR)]
-                WHEN source.variant_id IS NOT NULL
-                    THEN [CAST(source.variant_id AS VARCHAR)]
+                %s
                 ELSE []::VARCHAR[]
             END
-        """
+        """ % variant_fallback
     else:
-        evidence_ids = """
-            CASE
-                WHEN source.variant_id IS NOT NULL
-                    THEN [CAST(source.variant_id AS VARCHAR)]
-                ELSE []::VARCHAR[]
-            END
-        """
+        evidence_ids = (
+            """
+                CASE
+                    WHEN source.variant_id IS NOT NULL
+                        THEN [CAST(source.variant_id AS VARCHAR)]
+                    ELSE []::VARCHAR[]
+                END
+            """
+            if "variant_id" in columns
+            else "[]::VARCHAR[]"
+        )
 
     return """
         %s AS finding_id,

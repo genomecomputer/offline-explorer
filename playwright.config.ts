@@ -6,5 +6,8 @@ export default defineConfig({
   expect: { timeout: 30_000 },
   fullyParallel: false,
   workers: 1,
-  reporter: "line",
+  reporter: [
+    ["line"],
+    ["./scripts/fail-on-skipped-playwright-reporter.mjs"],
+  ],
 });

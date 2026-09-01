@@ -7,7 +7,8 @@ import json
 import os
 import re
 import threading
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
+from decimal import Decimal
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -43,6 +44,12 @@ def _clean_json_value(value: Any, depth: int = 0) -> Any:
         if value.is_integer():
             return int(value)
         return value
+    if isinstance(value, Decimal):
+        if not value.is_finite():
+            raise ValueError("saved record contains an unsupported number")
+        return int(value) if value == value.to_integral_value() else float(value)
+    if isinstance(value, (date, datetime)):
+        return value.isoformat()
     if isinstance(value, list):
         return [_clean_json_value(item, depth + 1) for item in value]
     if isinstance(value, dict):
@@ -125,20 +132,25 @@ class SavedResultsStore:
             return {}
         try:
             payload = json.loads(self.path.read_text(encoding="utf-8"))
-        except (OSError, TypeError, ValueError, json.JSONDecodeError):
-            return {}
+        except (OSError, TypeError, ValueError, json.JSONDecodeError) as error:
+            raise ValueError("saved results file is invalid") from error
         if not isinstance(payload, dict):
-            return {}
+            raise ValueError("saved results file is invalid")
         if payload.get("version") != SAVED_RESULTS_VERSION:
-            return {}
+            raise ValueError("saved results file uses an unsupported version")
         bundles = payload.get("bundles")
         if not isinstance(bundles, dict):
-            return {}
-        return {
-            bundle_id: [entry for entry in entries if isinstance(entry, dict)]
-            for bundle_id, entries in bundles.items()
-            if isinstance(bundle_id, str) and isinstance(entries, list)
-        }
+            raise ValueError("saved results file is invalid")
+        loaded: Dict[str, List[Dict[str, Any]]] = {}
+        for bundle_id, entries in bundles.items():
+            if (
+                not isinstance(bundle_id, str)
+                or not isinstance(entries, list)
+                or not all(isinstance(entry, dict) for entry in entries)
+            ):
+                raise ValueError("saved results file is invalid")
+            loaded[bundle_id] = entries
+        return loaded
 
     def _save(self, bundles: Dict[str, List[Dict[str, Any]]]) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)

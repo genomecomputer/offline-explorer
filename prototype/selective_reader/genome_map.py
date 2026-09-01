@@ -9,8 +9,8 @@ import duckdb
 
 
 BIN_SIZE_BASES = 10_000_000
-MAP_CACHE_FILENAME = ".offline-explorer-map-v2.json"
-MAP_CACHE_VERSION = 2
+MAP_CACHE_FILENAME = ".offline-explorer-map-v3.json"
+MAP_CACHE_VERSION = 3
 GRCH38_CHROMOSOMES: Tuple[Tuple[str, str, int], ...] = (
     ("chr1", "1", 248956422),
     ("chr2", "2", 242193529),
@@ -144,16 +144,30 @@ def _callability_summary(
         )
 
     path, kind = selected
-    columns = {
-        str(row[0])
-        for row in connection.execute(
-            "DESCRIBE SELECT * FROM read_parquet(?)",
-            [str(path)],
-        ).fetchall()
-    }
+    try:
+        columns = {
+            str(row[0])
+            for row in connection.execute(
+                "DESCRIBE SELECT * FROM read_parquet(?)",
+                [str(path)],
+            ).fetchall()
+        }
+    except duckdb.Error:
+        return (
+            {
+                "state": "summary_unavailable",
+                "kind": kind,
+                "source": path.name,
+                "record_count": 0,
+                "callable_bases": 0,
+            },
+            {},
+        )
     required = {"chrom", "callable"}
     if kind == "interval_records":
         required.update({"start_pos", "end_pos"})
+    else:
+        required.add("pos")
     if not required.issubset(columns):
         return (
             {
@@ -274,9 +288,12 @@ def _callability_summary(
 
         rows = connection.execute(
             """
-            SELECT chrom, count(*)::BIGINT AS record_count
+            SELECT chrom,
+                   count(*)::BIGINT AS record_count,
+                   count(*) FILTER (WHERE callable IS TRUE)::BIGINT
+                       AS callable_record_count
             FROM read_parquet(?)
-            WHERE chrom IS NOT NULL AND callable IS TRUE
+            WHERE chrom IS NOT NULL AND pos IS NOT NULL
             GROUP BY chrom
             """,
             [str(path)],
@@ -293,22 +310,33 @@ def _callability_summary(
             {},
         )
 
-    counts = {
-        _canonical_chromosome(chrom): {
-            "record_count": int(record_count),
-            "callable_bases": 0,
-            "bins": {},
-        }
-        for chrom, record_count in rows
-        if _canonical_chromosome(chrom)
-    }
+    counts: Dict[str, Dict[str, Any]] = {}
+    for chrom, record_count, callable_record_count in rows:
+        canonical = _canonical_chromosome(chrom)
+        if not canonical:
+            continue
+        details = counts.setdefault(
+            canonical,
+            {
+                "record_count": 0,
+                "callable_record_count": 0,
+                "callable_bases": 0,
+                "bins": {},
+            },
+        )
+        details["record_count"] += int(record_count)
+        details["callable_record_count"] += int(callable_record_count)
     total = sum(value["record_count"] for value in counts.values())
+    total_callable = sum(
+        value["callable_record_count"] for value in counts.values()
+    )
     return (
         {
             "state": "available" if total else "included_empty",
             "kind": kind,
             "source": path.name,
             "record_count": total,
+            "callable_record_count": total_callable,
             "callable_bases": 0,
         },
         counts,

@@ -2,6 +2,7 @@ import hashlib
 import io
 import json
 import os
+import shutil
 import tarfile
 import tempfile
 import unittest
@@ -48,6 +49,7 @@ class BundleValidationTest(unittest.TestCase):
         omit_declarations=(),
         archive_name="synthetic.genome.tar.gz",
         compression="gz",
+        manifest_overrides=None,
     ):
         schema = b'{"title":"synthetic schema"}\n'
         variant = b"synthetic parquet bytes"
@@ -68,6 +70,7 @@ class BundleValidationTest(unittest.TestCase):
             "genome_build": "GRCh38",
             "generated_at": "2026-08-25T00:00:00+00:00",
             "files": files,
+            **(manifest_overrides or {}),
         }
         archive = self.root / archive_name
         mode = "w:gz" if compression == "gz" else "w:"
@@ -140,6 +143,17 @@ class BundleValidationTest(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "schema.json must be declared"):
             open_bundle(str(archive), self.workspace_root)
+
+    def test_rejects_missing_or_invalid_manifest_metadata(self):
+        for field, value in (("genome_build", None), ("generated_at", 123)):
+            with self.subTest(field=field):
+                archive = self._write_bundle(
+                    archive_name="invalid-%s.genome.tar" % field,
+                    compression="none",
+                    manifest_overrides={field: value},
+                )
+                with self.assertRaisesRegex(ValueError, field):
+                    open_bundle(str(archive), self.workspace_root)
 
     def test_rejects_windows_archive_traversal(self):
         for member_name in (
@@ -243,6 +257,40 @@ class BundleValidationTest(unittest.TestCase):
 
         self.assertTrue(third.reused_workspace)
         hash_workspace_entry.assert_not_called()
+
+    def test_archive_rewrite_with_restored_size_and_mtime_forces_validation(self):
+        archive = self._write_bundle(compression="none")
+        open_bundle(str(archive), self.workspace_root)
+        original_stat = archive.stat()
+        content = bytearray(archive.read_bytes())
+        content[-1] ^= 1
+        archive.write_bytes(content)
+        os.utime(
+            archive,
+            ns=(original_stat.st_atime_ns, original_stat.st_mtime_ns),
+        )
+
+        with mock.patch.object(
+            core,
+            "_read_manifest",
+            side_effect=RuntimeError("full validation reached"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "full validation reached"):
+                open_bundle(str(archive), self.workspace_root)
+
+    def test_refuses_to_replace_an_unowned_workspace(self):
+        archive = self._write_bundle()
+        first = open_bundle(str(archive), self.workspace_root)
+        workspace = Path(first.workspace)
+        shutil.rmtree(workspace)
+        workspace.mkdir()
+        sentinel = workspace / "user-owned.txt"
+        sentinel.write_text("preserve")
+
+        with self.assertRaisesRegex(ValueError, "not owned"):
+            open_bundle(str(archive), self.workspace_root, force_validate=True)
+
+        self.assertEqual(sentinel.read_text(), "preserve")
 
 
 if __name__ == "__main__":

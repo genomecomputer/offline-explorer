@@ -9,7 +9,8 @@ import tarfile
 import tempfile
 import time
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
+from decimal import Decimal
 from pathlib import Path, PurePosixPath
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
@@ -33,7 +34,7 @@ MAX_VALIDATION_BYTES = 2 * 1024 * 1024 * 1024
 MAX_ARCHIVE_COMPRESSION_RATIO = 200
 MIN_COMPRESSION_RATIO_BYTES = 1024 * 1024 * 1024
 RECEIPT_FILENAME = ".validation-receipt.json"
-RECEIPT_VERSION = 2
+RECEIPT_VERSION = 3
 RETAINED_FILES = frozenset(
     {
         "schema.json",
@@ -296,9 +297,29 @@ def _archive_fingerprint(archive: Path) -> Dict[str, Any]:
         "path": str(archive),
         "size": metadata.st_size,
         "mtime_ns": metadata.st_mtime_ns,
+        "ctime_ns": metadata.st_ctime_ns,
         "device": metadata.st_dev,
         "inode": metadata.st_ino,
     }
+
+
+def _workspace_is_owned(workspace: Path) -> bool:
+    if workspace.is_symlink() or not workspace.is_dir():
+        return False
+    receipt_path = workspace / RECEIPT_FILENAME
+    if receipt_path.is_symlink() or not receipt_path.is_file():
+        return False
+    try:
+        receipt = json.loads(receipt_path.read_text())
+    except (OSError, TypeError, ValueError, json.JSONDecodeError):
+        return False
+    manifest_sha256 = receipt.get("manifest_sha256")
+    return (
+        receipt.get("version") in {2, RECEIPT_VERSION}
+        and isinstance(manifest_sha256, str)
+        and SHA256_PATTERN.fullmatch(manifest_sha256) is not None
+        and workspace.name == manifest_sha256[:20]
+    )
 
 
 def _workspace_matches_receipt(
@@ -535,6 +556,13 @@ def open_bundle(
             % schema_version
         )
 
+    genome_build = manifest.get("genome_build")
+    generated_at = manifest.get("generated_at")
+    if not isinstance(genome_build, str) or not genome_build.strip():
+        raise ValueError("manifest genome_build field is missing or invalid")
+    if not isinstance(generated_at, str) or not generated_at.strip():
+        raise ValueError("manifest generated_at field is missing or invalid")
+
     declared = _validated_manifest_files(manifest)
 
     workspace_root.mkdir(parents=True, exist_ok=True)
@@ -759,8 +787,8 @@ def open_bundle(
             "stored_entries": stored_entries,
             "report": {
                 "schema_version": str(schema_version),
-                "genome_build": str(manifest.get("genome_build")),
-                "generated_at": str(manifest.get("generated_at")),
+                "genome_build": genome_build,
+                "generated_at": generated_at,
                 "extracted_files": extracted_files,
                 "extracted_bytes": extracted_bytes,
                 "skipped_files": skipped_files,
@@ -771,9 +799,13 @@ def open_bundle(
         receipt_path = temporary_workspace / RECEIPT_FILENAME
         receipt_path.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
 
-        if final_workspace.is_symlink() or final_workspace.is_file():
-            final_workspace.unlink()
-        elif final_workspace.is_dir():
+        if (
+            final_workspace.is_symlink() or final_workspace.exists()
+        ) and not _workspace_is_owned(final_workspace):
+            raise ValueError(
+                "validated workspace destination is not owned by Offline Explorer"
+            )
+        if final_workspace.is_dir():
             shutil.rmtree(final_workspace)
         temporary_workspace.replace(final_workspace)
 
@@ -781,8 +813,8 @@ def open_bundle(
             archive=str(archive),
             workspace=str(final_workspace),
             schema_version=str(schema_version),
-            genome_build=str(manifest.get("genome_build")),
-            generated_at=str(manifest.get("generated_at")),
+            genome_build=genome_build,
+            generated_at=generated_at,
             extracted_files=extracted_files,
             extracted_bytes=extracted_bytes,
             skipped_files=skipped_files,
@@ -880,38 +912,44 @@ def _column_expression(columns: set[str], name: str, value_type: str) -> str:
     return "CAST(NULL AS %s)" % value_type
 
 
+def _canonical_chrom_sql(expression: str) -> str:
+    return (
+        "regexp_replace("
+        "lower(regexp_replace(CAST(%s AS VARCHAR), '^chr', '', 'i')), "
+        "'^mt$', 'm')" % expression
+    )
+
+
+def _typed_column(
+    columns: set[str],
+    name: str,
+    value_type: str,
+    *,
+    source: str = "source",
+    fallback: Optional[str] = None,
+) -> str:
+    if name in columns:
+        return "CAST(%s.%s AS %s)" % (source, name, value_type)
+    return fallback or "CAST(NULL AS %s)" % value_type
+
+
 def _coordinate_callability(
     connection: Any,
     available: set[str],
     chrom: str,
     pos: int,
 ) -> Optional[Dict[str, Any]]:
-    sources = (
-        (
-            "callability",
-            "callability.parquet",
-            "pos = ?",
-        ),
-        (
-            "callable_regions",
-            "callable_regions.parquet",
-            "start_pos <= ? AND end_pos >= ?",
-        ),
-    )
+    sources = (("callability", "callability.parquet", "pos = ?"),)
     for view_name, source_name, position_predicate in sources:
         if view_name not in available:
             continue
         columns = _view_columns(connection, view_name)
         required = {"chrom", "callable"}
-        if view_name == "callability":
-            required.add("pos")
-        else:
-            required.update({"start_pos", "end_pos"})
+        required.add("pos")
         if not required.issubset(columns):
             continue
 
-        parameters: List[Any] = [chrom]
-        parameters.extend([pos, pos] if view_name == "callable_regions" else [pos])
+        parameters: List[Any] = [chrom, pos]
         cursor = connection.execute(
             """
             SELECT callable,
@@ -920,8 +958,10 @@ def _coordinate_callability(
                    %s AS evidence_scope,
                    %s AS assay_scope
             FROM %s
-            WHERE lower(replace(chrom, 'chr', '')) = lower(replace(?, 'chr', ''))
+            WHERE %s = %s
               AND %s
+            ORDER BY callable, reference_observed, call_confidence,
+                     evidence_scope, assay_scope
             LIMIT 25
             """
             % (
@@ -930,6 +970,8 @@ def _coordinate_callability(
                 _column_expression(columns, "evidence_scope", "VARCHAR"),
                 _column_expression(columns, "assay_scope", "VARCHAR"),
                 view_name,
+                _canonical_chrom_sql("chrom"),
+                _canonical_chrom_sql("?"),
                 position_predicate,
             ),
             parameters,
@@ -1002,6 +1044,7 @@ def _answerability_for_search(
     connection: Any,
     workspace: Path,
     available: set[str],
+    unavailable: set[str],
     query: str,
     query_kind: str,
     hits: List[Dict[str, Any]],
@@ -1014,6 +1057,15 @@ def _answerability_for_search(
             "bundle_records",
             "matching_bundle_records_found",
             sections=sorted({str(hit["section"]) for hit in hits}),
+        )
+
+    if query_kind == "term" and unavailable:
+        return _answerability(
+            "insufficient_bundle_data",
+            query_kind,
+            "optional_analysis",
+            "included_analysis_unavailable",
+            unavailable_analyses=sorted(unavailable),
         )
 
     if query_kind == "term":
@@ -1035,9 +1087,7 @@ def _answerability_for_search(
         if callability is not None:
             return callability
 
-        has_callability_source = bool(
-            {"callability", "callable_regions"}.intersection(available)
-        )
+        has_callability_source = "callability" in available
         if has_callability_source:
             return _answerability(
                 "insufficient_bundle_data",
@@ -1201,8 +1251,8 @@ def variants_for_region(
             "'%s/**/*.parquet', hive_partitioning=true)" % variants_path
         )
         predicate = (
-            "lower(replace(chrom, 'chr', '')) = "
-            "lower(replace(?, 'chr', '')) AND pos BETWEEN ? AND ?"
+            "%s = %s AND pos BETWEEN ? AND ?"
+            % (_canonical_chrom_sql("chrom"), _canonical_chrom_sql("?"))
         )
         parameters: List[Any] = [chrom, start, end]
         total = int(
@@ -1259,14 +1309,42 @@ def _trait_variant_projection() -> str:
     """
 
 
+def _optional_search_rows(
+    connection: duckdb.DuckDBPyConnection,
+    query: str,
+    parameters: List[Any],
+    section: str,
+    analysis: str,
+    unavailable: set[str],
+) -> List[Dict[str, Any]]:
+    try:
+        return _rows(connection.execute(query, parameters), section)
+    except duckdb.Error:
+        unavailable.add(analysis)
+        return []
+
+
 def search_workspace(workspace_path: str, query: str) -> SearchResult:
+    connection = duckdb.connect()
+    try:
+        connection.execute("PRAGMA threads=2")
+        connection.execute("PRAGMA enable_progress_bar=false")
+        return _search_workspace(connection, workspace_path, query)
+    finally:
+        connection.close()
+
+
+def _search_workspace(
+    connection: duckdb.DuckDBPyConnection,
+    workspace_path: str,
+    query: str,
+) -> SearchResult:
     started = time.monotonic()
     workspace = Path(workspace_path).resolve()
     variants = workspace / "variants.parquet"
     if not variants.is_dir():
         raise ValueError("workspace does not contain variants.parquet")
 
-    connection = duckdb.connect()
     connection.execute(
         "CREATE VIEW variants AS SELECT * FROM read_parquet("
         "'%s/**/*.parquet', hive_partitioning=true)" % _sql_path(variants)
@@ -1291,13 +1369,18 @@ def search_workspace(workspace_path: str, query: str) -> SearchResult:
         "callable_regions": workspace / "callable_regions.parquet",
     }
     available = set()
+    unavailable = set()
     for table, path in table_files.items():
         if path.is_file():
-            connection.execute(
-                "CREATE VIEW %s AS SELECT * FROM read_parquet('%s')"
-                % (table, _sql_path(path))
-            )
-            available.add(table)
+            try:
+                connection.execute(
+                    "CREATE VIEW %s AS SELECT * FROM read_parquet('%s')"
+                    % (table, _sql_path(path))
+                )
+            except duckdb.Error:
+                unavailable.add(table)
+            else:
+                available.add(table)
 
     has_clinical_findings = False
     has_clinical_evidence = False
@@ -1311,6 +1394,8 @@ def search_workspace(workspace_path: str, query: str) -> SearchResult:
                 "SELECT %s FROM clinical_findings AS source" % findings_projection
             )
             has_clinical_findings = True
+        else:
+            unavailable.add("clinical_findings")
     if has_clinical_findings and "clinical_evidence" in available:
         evidence_projection = clinical_evidence_projection(
             _view_columns(connection, "clinical_evidence")
@@ -1321,6 +1406,90 @@ def search_workspace(workspace_path: str, query: str) -> SearchResult:
                 "SELECT %s FROM clinical_evidence AS source" % evidence_projection
             )
             has_clinical_evidence = True
+        else:
+            unavailable.add("clinical_evidence")
+
+    if "gene_index" in available:
+        columns = _view_columns(connection, "gene_index")
+        if {"gene_symbol", "chrom", "start_pos", "end_pos"}.issubset(columns):
+            connection.execute(
+                """
+                CREATE VIEW searchable_gene_index AS
+                SELECT CAST(source.gene_symbol AS VARCHAR) AS gene_symbol,
+                       CAST(source.chrom AS VARCHAR) AS chrom,
+                       CAST(source.start_pos AS BIGINT) AS start_pos,
+                       CAST(source.end_pos AS BIGINT) AS end_pos,
+                       %s AS variant_count,
+                       %s AS actionable_count
+                FROM gene_index AS source
+                """
+                % (
+                    _typed_column(columns, "variant_count", "BIGINT"),
+                    _typed_column(columns, "actionable_count", "BIGINT"),
+                )
+            )
+        else:
+            unavailable.add("gene_index")
+
+    if "pharmacogenomics" in available:
+        columns = _view_columns(connection, "pharmacogenomics")
+        if {"gene_symbol", "affected_drugs"}.intersection(columns):
+            connection.execute(
+                """
+                CREATE VIEW searchable_pharmacogenomics AS
+                SELECT %s AS gene_symbol,
+                       %s AS diplotype,
+                       %s AS phenotype,
+                       %s AS activity_score,
+                       %s AS copy_number,
+                       %s AS cpic_level,
+                       %s AS affected_drugs,
+                       %s AS guideline_url
+                FROM pharmacogenomics AS source
+                """
+                % (
+                    _typed_column(columns, "gene_symbol", "VARCHAR"),
+                    _typed_column(columns, "diplotype", "VARCHAR"),
+                    _typed_column(columns, "phenotype", "VARCHAR"),
+                    _typed_column(columns, "activity_score", "DOUBLE"),
+                    _typed_column(columns, "copy_number", "VARCHAR"),
+                    _typed_column(columns, "cpic_level", "VARCHAR"),
+                    _typed_column(
+                        columns,
+                        "affected_drugs",
+                        "VARCHAR[]",
+                        fallback="[]::VARCHAR[]",
+                    ),
+                    _typed_column(columns, "guideline_url", "VARCHAR"),
+                )
+            )
+        else:
+            unavailable.add("pharmacogenomics")
+
+    if "prs" in available:
+        columns = _view_columns(connection, "prs")
+        if "trait" in columns:
+            connection.execute(
+                """
+                CREATE VIEW searchable_prs AS
+                SELECT CAST(source.trait AS VARCHAR) AS trait,
+                       %s AS score_value,
+                       %s AS percentile,
+                       %s AS reference_population,
+                       %s AS training_source,
+                       %s AS training_date
+                FROM prs AS source
+                """
+                % (
+                    _typed_column(columns, "score_value", "DOUBLE"),
+                    _typed_column(columns, "percentile", "DOUBLE"),
+                    _typed_column(columns, "reference_population", "VARCHAR"),
+                    _typed_column(columns, "training_source", "VARCHAR"),
+                    _typed_column(columns, "training_date", "VARCHAR"),
+                )
+            )
+        else:
+            unavailable.add("prs")
 
     normalized_query = query.strip()
     if not normalized_query:
@@ -1331,7 +1500,8 @@ def search_workspace(workspace_path: str, query: str) -> SearchResult:
     if RSID_PATTERN.fullmatch(normalized_query):
         query_kind = "rsid"
         cursor = connection.execute(
-            "SELECT %s FROM variants WHERE lower(rsid) = lower(?) LIMIT 25"
+            "SELECT %s FROM variants WHERE lower(rsid) = lower(?) "
+            "ORDER BY pos, variant_id LIMIT 25"
             % _variant_projection(),
             [normalized_query],
         )
@@ -1340,14 +1510,17 @@ def search_workspace(workspace_path: str, query: str) -> SearchResult:
         query_kind = "coordinate"
         chrom = "chr" + coordinate.group("chrom").upper()
         parameters: List[Any] = [chrom, int(coordinate.group("pos"))]
-        predicate = "chrom = ? AND pos = ?"
+        predicate = "%s = %s AND pos = ?" % (
+            _canonical_chrom_sql("chrom"),
+            _canonical_chrom_sql("?"),
+        )
         if coordinate.group("ref") and coordinate.group("alt"):
             predicate += " AND ref = ? AND alt = ?"
             parameters.extend(
                 [coordinate.group("ref").upper(), coordinate.group("alt").upper()]
             )
         cursor = connection.execute(
-            "SELECT %s FROM variants WHERE %s LIMIT 25"
+            "SELECT %s FROM variants WHERE %s ORDER BY pos, variant_id LIMIT 25"
             % (_variant_projection(), predicate),
             parameters,
         )
@@ -1355,55 +1528,68 @@ def search_workspace(workspace_path: str, query: str) -> SearchResult:
     else:
         query_kind = "term"
         cursor = connection.execute(
-            "SELECT %s FROM variants WHERE upper(gene.symbol) = upper(?) LIMIT 25"
+            "SELECT %s FROM variants WHERE upper(gene.symbol) = upper(?) "
+            "ORDER BY pos, variant_id LIMIT 25"
             % _variant_projection(),
             [normalized_query],
         )
         hits.extend(_rows(cursor, "variants"))
 
-        if "gene_index" in available:
-            cursor = connection.execute(
+        if "gene_index" in available and "gene_index" not in unavailable:
+            hits.extend(_optional_search_rows(
+                connection,
                 """
                 SELECT gene_symbol, chrom, start_pos, end_pos,
                        variant_count, actionable_count
-                FROM gene_index
+                FROM searchable_gene_index
                 WHERE upper(gene_symbol) = upper(?)
+                ORDER BY chrom, start_pos, end_pos, gene_symbol
                 LIMIT 25
                 """,
                 [normalized_query],
-            )
-            hits.extend(_rows(cursor, "genes"))
+                "genes",
+                "gene_index",
+                unavailable,
+            ))
 
-        if "pharmacogenomics" in available:
-            cursor = connection.execute(
+        if "pharmacogenomics" in available and "pharmacogenomics" not in unavailable:
+            hits.extend(_optional_search_rows(
+                connection,
                 """
                 SELECT gene_symbol, diplotype, phenotype, activity_score,
                        copy_number, cpic_level, affected_drugs, guideline_url
-                FROM pharmacogenomics
+                FROM searchable_pharmacogenomics
                 WHERE upper(gene_symbol) = upper(?)
                    OR EXISTS (
                        SELECT 1
                        FROM UNNEST(affected_drugs) AS drug(value)
                        WHERE lower(value) LIKE '%' || lower(?) || '%'
                    )
+                ORDER BY gene_symbol, diplotype, phenotype
                 LIMIT 25
                 """,
                 [normalized_query, normalized_query],
-            )
-            hits.extend(_rows(cursor, "pharmacogenomics"))
+                "pharmacogenomics",
+                "pharmacogenomics",
+                unavailable,
+            ))
 
-        if "prs" in available:
-            cursor = connection.execute(
+        if "prs" in available and "prs" not in unavailable:
+            hits.extend(_optional_search_rows(
+                connection,
                 """
                 SELECT trait, score_value, percentile, reference_population,
                        training_source, training_date
-                FROM prs
+                FROM searchable_prs
                 WHERE lower(trait) LIKE '%' || lower(?) || '%'
+                ORDER BY trait, score_value, percentile
                 LIMIT 25
                 """,
                 [normalized_query],
-            )
-            hits.extend(_rows(cursor, "polygenic_scores"))
+                "polygenic_scores",
+                "prs",
+                unavailable,
+            ))
 
         if has_clinical_findings:
             evidence_projection = ", NULL AS evidence"
@@ -1458,7 +1644,8 @@ def search_workspace(workspace_path: str, query: str) -> SearchResult:
                 """
                 parameters = [normalized_query] * 5 + source_parameters
 
-            cursor = connection.execute(
+            hits.extend(_optional_search_rows(
+                connection,
                 """
                 SELECT findings.finding_id,
                        findings.condition,
@@ -1518,8 +1705,10 @@ def search_workspace(workspace_path: str, query: str) -> SearchResult:
                 LIMIT 25
                 """ % (evidence_projection, term_predicate),
                 parameters,
-            )
-            hits.extend(_rows(cursor, "clinical_findings"))
+                "clinical_findings",
+                "clinical_findings",
+                unavailable,
+            ))
 
         if has_trait_associations:
             try:
@@ -1551,8 +1740,35 @@ def search_workspace(workspace_path: str, query: str) -> SearchResult:
             else:
                 hits.extend(_rows(cursor, "trait_variants"))
 
-        if "gwas_associations" in available and has_trait_associations:
+        if (
+            "gwas_associations" in available
+            and "gwas_associations" not in unavailable
+            and has_trait_associations
+        ):
             gwas_columns = _view_columns(connection, "gwas_associations")
+            required_gwas_columns = {
+                "variant_id",
+                "trait",
+                "effect_allele",
+                "effect_size",
+                "effect_type",
+                "p_value",
+            }
+            if not required_gwas_columns.issubset(gwas_columns):
+                unavailable.add("gwas_associations")
+                gwas_columns = set()
+            if not gwas_columns:
+                return _finish_search_result(
+                    connection,
+                    workspace,
+                    available,
+                    unavailable,
+                    normalized_query,
+                    query_kind,
+                    hits,
+                    coordinate,
+                    started,
+                )
             join_predicate = "gwas.variant_id = person_linked.variant_id"
             if "rsid" in gwas_columns:
                 join_predicate += """
@@ -1571,7 +1787,8 @@ def search_workspace(workspace_path: str, query: str) -> SearchResult:
                 "LIKE '%%' || lower(?) || '%%'" % column
                 for column in term_columns
             )
-            cursor = connection.execute(
+            hits.extend(_optional_search_rows(
+                connection,
                 """
                 WITH person_linked AS (
                     SELECT DISTINCT variant_id, rsid, chrom, pos, ref, alt,
@@ -1597,13 +1814,40 @@ def search_workspace(workspace_path: str, query: str) -> SearchResult:
                     term_predicate,
                 ),
                 [normalized_query] * (1 + len(term_columns)),
-            )
-            hits.extend(_rows(cursor, "gwas"))
+                "gwas",
+                "gwas_associations",
+                unavailable,
+            ))
 
+    return _finish_search_result(
+        connection,
+        workspace,
+        available,
+        unavailable,
+        normalized_query,
+        query_kind,
+        hits,
+        coordinate,
+        started,
+    )
+
+
+def _finish_search_result(
+    connection: duckdb.DuckDBPyConnection,
+    workspace: Path,
+    available: set[str],
+    unavailable: set[str],
+    normalized_query: str,
+    query_kind: str,
+    hits: List[Dict[str, Any]],
+    coordinate: Optional[re.Match[str]],
+    started: float,
+) -> SearchResult:
     answerability = _answerability_for_search(
         connection,
         workspace,
         available,
+        unavailable,
         normalized_query,
         query_kind,
         hits,
@@ -1613,7 +1857,6 @@ def search_workspace(workspace_path: str, query: str) -> SearchResult:
 
     for hit in hits:
         hit["_record_key"] = saved_result_id(hit)
-    connection.close()
     return SearchResult(
         query=normalized_query,
         query_kind=query_kind,
@@ -1628,6 +1871,10 @@ def json_ready(value: Any) -> Any:
         return {key: json_ready(item) for key, item in value.items()}
     if isinstance(value, (list, tuple)):
         return [json_ready(item) for item in value]
-    if hasattr(value, "isoformat"):
+    if isinstance(value, Decimal):
+        if not value.is_finite():
+            return None
+        return int(value) if value == value.to_integral_value() else float(value)
+    if isinstance(value, (date, datetime)):
         return value.isoformat()
     return value

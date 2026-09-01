@@ -984,6 +984,7 @@ PAGE = r'''<!doctype html>
     let activeDirectoryView = "personal";
     let activeWorkspaceRoute = "search";
     let resultReturnRoute = "search";
+    let activeSearchController = null;
     let genomeMapBundleId = "";
     let genomeMapLoading = false;
     let regionPayload = null;
@@ -1703,7 +1704,9 @@ PAGE = r'''<!doctype html>
         if (callability.kind === "interval_records") {
           return `${mapLength(callability.callable_bases)} marked callable`;
         }
-        return `${Number(callability.record_count).toLocaleString("en-US")} callable sites · no coverage percentage`;
+        const records = Number(callability.record_count || 0);
+        const callable = Number(callability.callable_record_count || 0);
+        return `${records.toLocaleString("en-US")} site ${records === 1 ? "record" : "records"} · ${callable.toLocaleString("en-US")} callable · no coverage percentage`;
       }
       if (callability?.state === "included_empty") return "Included, no records";
       if (callability?.state === "summary_unavailable") return "Included, summary unavailable";
@@ -1958,7 +1961,8 @@ PAGE = r'''<!doctype html>
         return;
       }
       const sites = Number(track.site_count || 0);
-      regionCallabilityMeta.textContent = `${sites.toLocaleString("en-US")} callable ${sites === 1 ? "site" : "sites"} · no coverage percentage`;
+      const records = Number(track.record_count || 0);
+      regionCallabilityMeta.textContent = `${records.toLocaleString("en-US")} site ${records === 1 ? "record" : "records"} · ${sites.toLocaleString("en-US")} callable · no coverage percentage`;
       if (!bins.length || !sites) {
         emptyTrack(regionCallabilityTrack, "No callable sites are recorded in this region.");
         return;
@@ -2879,6 +2883,9 @@ PAGE = r'''<!doctype html>
     }
 
     async function search(query) {
+      if (activeSearchController) activeSearchController.abort();
+      const controller = new AbortController();
+      activeSearchController = controller;
       if (activeWorkspaceRoute !== "results") resultReturnRoute = activeWorkspaceRoute;
       showWorkspaceRoute("results");
       button.disabled = true;
@@ -2891,20 +2898,26 @@ PAGE = r'''<!doctype html>
         const response = await fetch(`${basePath}/api/search`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ query })
+          body: JSON.stringify({ query }),
+          signal: controller.signal
         });
         const payload = await response.json();
+        if (controller.signal.aborted) return;
         if (!response.ok) throw new Error(payload.error || "Search failed");
         renderSearch(payload);
       } catch (error) {
+        if (controller.signal.aborted || error.name === "AbortError") return;
         document.querySelector("#results-title").textContent = "Search unavailable";
         document.querySelector("#result-meta").textContent = "";
         resultNotice.hidden = true;
         content.innerHTML = '<div class="empty error"></div>';
         content.firstElementChild.textContent = error.message;
       } finally {
-        button.disabled = false;
-        button.textContent = "Search";
+        if (activeSearchController === controller) {
+          activeSearchController = null;
+          button.disabled = false;
+          button.textContent = "Search";
+        }
       }
     }
 

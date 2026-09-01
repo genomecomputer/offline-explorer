@@ -2,14 +2,13 @@ name: macOS ARM preview
 
 on:
   workflow_dispatch:
+  pull_request:
   push:
     tags:
       - "v*"
 
 permissions:
-  contents: write
-  id-token: write
-  attestations: write
+  contents: read
 
 concurrency:
   group: macos-preview-${{ github.ref }}
@@ -82,6 +81,7 @@ jobs:
           ditto -x -k "${{ steps.artifact.outputs.zip }}" "$preview_directory"
           npm run verify:mac-preview -- "$preview_directory/Offline Explorer.app"
           OFFLINE_EXPLORER_EXECUTABLE="$preview_directory/Offline Explorer.app/Contents/MacOS/Offline Explorer" npm run test:package
+          OFFLINE_EXPLORER_EXECUTABLE="$preview_directory/Offline Explorer.app/Contents/MacOS/Offline Explorer" npm run test:e2e
 
       - name: Generate SHA-256 checksum
         shell: bash
@@ -90,11 +90,6 @@ jobs:
           checksum_path="${{ steps.artifact.outputs.checksum }}"
           cd release
           shasum -a 256 "$(basename "$preview_zip")" > "$(basename "$checksum_path")"
-
-      - name: Attest preview provenance
-        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
-        with:
-          subject-path: ${{ steps.artifact.outputs.zip }}
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -105,8 +100,46 @@ jobs:
             ${{ steps.artifact.outputs.zip }}
             ${{ steps.artifact.outputs.checksum }}
 
+  publish:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - name: Download verified preview
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: offline-explorer-macos-arm-preview
+          path: release
+
+      - name: Locate verified preview
+        id: artifact
+        shell: bash
+        run: |
+          shopt -s nullglob
+          preview_zips=(release/Offline.Explorer-*-arm64-preview.zip)
+          if [[ ${#preview_zips[@]} -ne 1 ]]; then
+            echo "Expected exactly one verified preview ZIP." >&2
+            exit 1
+          fi
+          preview_zip="${preview_zips[0]}"
+          checksum_path="${preview_zip}.sha256"
+          if [[ ! -f "$checksum_path" ]]; then
+            echo "Verified preview checksum was not downloaded." >&2
+            exit 1
+          fi
+          echo "zip=$preview_zip" >> "$GITHUB_OUTPUT"
+          echo "checksum=$checksum_path" >> "$GITHUB_OUTPUT"
+
+      - name: Attest preview provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-path: ${{ steps.artifact.outputs.zip }}
+
       - name: Publish tagged preview
-        if: startsWith(github.ref, 'refs/tags/')
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}

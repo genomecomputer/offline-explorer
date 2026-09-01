@@ -141,7 +141,82 @@ class RegionBrowserTest(unittest.TestCase):
 
         self.assertEqual(payload["callability"]["kind"], "site_records")
         self.assertEqual(payload["callability"]["site_count"], 1)
+        self.assertEqual(payload["callability"]["record_count"], 2)
         self.assertIsNone(payload["callability"]["coverage_percent"])
+
+    def test_non_callable_site_records_are_not_reported_as_empty(self):
+        (self.workspace / "callable_regions.parquet").unlink()
+        connection = duckdb.connect()
+        connection.execute(
+            """
+            COPY (
+                SELECT 'chr1'::VARCHAR AS chrom, 110::BIGINT AS pos,
+                       false AS callable
+            ) TO ? (FORMAT PARQUET)
+            """,
+            [str(self.workspace / "callability.parquet")],
+        )
+        connection.close()
+
+        payload = region_browser_for_workspace(
+            str(self.workspace), "GRCh38", query="chr1:100-120"
+        )
+
+        self.assertEqual(payload["callability"]["state"], "available")
+        self.assertEqual(payload["callability"]["record_count"], 1)
+        self.assertEqual(payload["callability"]["site_count"], 0)
+
+    def test_falls_back_to_variants_when_gene_index_is_unreadable(self):
+        (self.workspace / "gene_index.parquet").write_text("not parquet")
+
+        payload = region_browser_for_workspace(
+            str(self.workspace), "GRCh38", query="GENE1"
+        )
+
+        self.assertEqual(payload["target"]["kind"], "gene")
+        self.assertEqual(payload["target"]["label"], "GENE1")
+        self.assertEqual(payload["genes"]["state"], "unavailable")
+
+    def test_mitochondrial_chromosome_aliases_match(self):
+        mitochondrial = self.workspace / "variants.parquet" / "chrom=MT"
+        mitochondrial.mkdir()
+        connection = duckdb.connect()
+        connection.execute(
+            """
+            COPY (
+                SELECT 'MT:100:A:G'::VARCHAR AS variant_id,
+                       'rs9999'::VARCHAR AS rsid,
+                       'MT'::VARCHAR AS chrom,
+                       100::BIGINT AS pos,
+                       'A'::VARCHAR AS ref,
+                       'G'::VARCHAR AS alt,
+                       struct_pack(gt := [0, 1]::INTEGER[], zygosity := 'het') AS genotype,
+                       struct_pack(call_confidence := 'high') AS quality,
+                       struct_pack(symbol := 'MTGENE') AS gene,
+                       struct_pack(hgvsp := NULL::VARCHAR) AS consequence,
+                       struct_pack(
+                           clinvar_significance := NULL::VARCHAR,
+                           clinvar_has_conflicts := false,
+                           clinvar_conflict_summary := NULL::VARCHAR,
+                           clinvar_review_stars := NULL::INTEGER,
+                           clinvar_submitters_count := NULL::INTEGER,
+                           clinvar_id := NULL::VARCHAR
+                       ) AS pathogenicity,
+                       struct_pack(is_gwas_hit := false) AS trait_associations,
+                       struct_pack(is_pgx := false) AS pharmacogenomics,
+                       false AS clinical_grade
+            ) TO ? (FORMAT PARQUET)
+            """,
+            [str(mitochondrial / "part-0000.parquet")],
+        )
+        connection.close()
+
+        payload = region_browser_for_workspace(
+            str(self.workspace), "GRCh38", query="chrM:90-110"
+        )
+
+        self.assertEqual(payload["variants"]["total"], 1)
+        self.assertEqual(payload["records"]["hits"][0]["variant_id"], "MT:100:A:G")
 
     def test_rejects_unknown_terms_and_oversized_regions(self):
         with self.assertRaisesRegex(ValueError, "gene is not recorded"):

@@ -22,6 +22,7 @@ import {
 } from "./backend-contract";
 import { genomeBundlePickerExtensions, isGenomeBundlePath } from "./bundle-path";
 import { lowerProcessPriority } from "./process-priority";
+import { writePrivateTextFile } from "./private-file";
 import { migrateLegacyUserData } from "./user-data-migration";
 
 const repositoryRoot = path.resolve(__dirname, "..");
@@ -259,7 +260,7 @@ async function exportSavedResults(format: "json" | "csv"): Promise<Record<string
   }
 
   if (!filePath) return { saved: false };
-  writeFileSync(filePath, content, { encoding: "utf8", mode: 0o600 });
+  writePrivateTextFile(filePath, content);
   return { saved: true, file_name: path.basename(filePath) };
 }
 

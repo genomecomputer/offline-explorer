@@ -176,6 +176,32 @@ class ClinicalSearchTest(unittest.TestCase):
             "reviewed by expert panel",
         )
 
+    def test_clinvar_finding_without_variant_id_remains_searchable(self):
+        (self.workspace / "clinical_findings.parquet").unlink()
+        (self.workspace / "clinical_evidence.parquet").unlink()
+        connection = duckdb.connect()
+        connection.execute(
+            """
+            COPY (
+                SELECT 'finding-without-variant'::VARCHAR AS finding_id,
+                       'GENE2'::VARCHAR AS gene_symbol,
+                       'Synthetic condition'::VARCHAR AS condition,
+                       'Likely_pathogenic'::VARCHAR AS classification,
+                       'VCV000000001'::VARCHAR AS clinvar_id,
+                       true AS clinical_grade
+            ) TO ? (FORMAT PARQUET)
+            """,
+            [str(self.workspace / "clinical_findings.parquet")],
+        )
+        connection.close()
+
+        result = search_workspace(str(self.workspace), "Synthetic condition")
+        hit = next(hit for hit in result.hits if hit["section"] == "clinical_findings")
+
+        self.assertEqual(hit["finding_id"], "finding-without-variant")
+        self.assertIsNone(hit["variant_id"])
+        self.assertEqual(hit["evidence_ids"], ["VCV000000001"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -134,19 +134,90 @@ class AnswerabilityTest(unittest.TestCase):
         self.assertEqual(result.answerability["state"], "not_callable")
         self.assertFalse(result.answerability["callability"]["callable"])
 
-    def test_callable_interval_can_answer_a_missing_position(self):
+    def test_callable_interval_does_not_answer_an_exact_missing_position(self):
         self._write_callable_region(True)
 
         result = search_workspace(str(self.workspace), "chr1:200")
 
+        self.assertEqual(result.answerability["state"], "analysis_not_included")
         self.assertEqual(
-            result.answerability["state"],
-            "callable_no_matching_alternate",
+            result.answerability["reason"], "site_callability_not_included"
+        )
+
+    def test_coordinate_search_normalizes_chr_prefixes(self):
+        result = search_workspace(str(self.workspace), "1:100:A:G")
+
+        self.assertEqual(result.answerability["state"], "recorded")
+        self.assertEqual([hit["variant_id"] for hit in result.hits], ["chr1:100:A:G"])
+
+    def test_unreadable_optional_table_does_not_break_variant_search(self):
+        (self.workspace / "pharmacogenomics.parquet").write_text("not parquet")
+
+        result = search_workspace(str(self.workspace), "GENE1")
+
+        self.assertEqual(result.answerability["state"], "recorded")
+        self.assertEqual([hit["variant_id"] for hit in result.hits], ["chr1:100:A:G"])
+
+    def test_unsupported_optional_schema_is_reported_without_a_search_error(self):
+        connection = duckdb.connect()
+        connection.execute(
+            "COPY (SELECT 'unsupported'::VARCHAR AS unexpected) "
+            "TO ? (FORMAT PARQUET)",
+            [str(self.workspace / "pharmacogenomics.parquet")],
+        )
+        connection.close()
+
+        result = search_workspace(str(self.workspace), "unknown-term")
+
+        self.assertEqual(result.answerability["state"], "insufficient_bundle_data")
+        self.assertEqual(
+            result.answerability["reason"], "included_analysis_unavailable"
         )
         self.assertEqual(
-            result.answerability["callability"]["source"],
-            "callable_regions.parquet",
+            result.answerability["unavailable_analyses"], ["pharmacogenomics"]
         )
+
+    def test_searches_minimal_pharmacogenomics_schema(self):
+        connection = duckdb.connect()
+        connection.execute(
+            """
+            COPY (
+                SELECT 'GENE2'::VARCHAR AS gene_symbol,
+                       '*1/*2'::VARCHAR AS diplotype,
+                       'Intermediate metabolizer'::VARCHAR AS phenotype,
+                       ['synthetic-drug']::VARCHAR[] AS affected_drugs
+            ) TO ? (FORMAT PARQUET)
+            """,
+            [str(self.workspace / "pharmacogenomics.parquet")],
+        )
+        connection.close()
+
+        result = search_workspace(str(self.workspace), "synthetic-drug")
+        hit = next(hit for hit in result.hits if hit["section"] == "pharmacogenomics")
+
+        self.assertEqual(hit["gene_symbol"], "GENE2")
+        self.assertIsNone(hit["activity_score"])
+        self.assertIsNone(hit["guideline_url"])
+
+    def test_serializes_native_prs_training_dates(self):
+        connection = duckdb.connect()
+        connection.execute(
+            """
+            COPY (
+                SELECT 'Synthetic trait'::VARCHAR AS trait,
+                       0.25::DECIMAL(8, 3) AS score_value,
+                       DATE '2026-08-14' AS training_date
+            ) TO ? (FORMAT PARQUET)
+            """,
+            [str(self.workspace / "prs.parquet")],
+        )
+        connection.close()
+
+        result = search_workspace(str(self.workspace), "Synthetic trait")
+        hit = next(hit for hit in result.hits if hit["section"] == "polygenic_scores")
+
+        self.assertEqual(hit["training_date"], "2026-08-14")
+        self.assertEqual(hit["score_value"], 0.25)
 
     def test_missing_v11_callability_is_not_reported_as_a_negative_result(self):
         result = search_workspace(str(self.workspace), "chr1:200")

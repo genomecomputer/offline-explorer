@@ -1,0 +1,47 @@
+#!/bin/sh
+set -eu
+
+repo_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+runtime_dir="$repo_dir/.offline-explorer/build-venv"
+
+if [ ! -x "$runtime_dir/bin/python" ]; then
+  python3 -m venv "$runtime_dir"
+fi
+
+if ! "$runtime_dir/bin/python" -c 'import duckdb, PyInstaller' >/dev/null 2>&1; then
+  "$runtime_dir/bin/pip" install --only-binary=:all: \
+    -r "$repo_dir/prototype/requirements.txt" \
+    -r "$repo_dir/prototype/build-requirements.txt"
+fi
+
+cd "$repo_dir"
+
+case "${1:-cli}" in
+  engine)
+    "$runtime_dir/bin/python" -m PyInstaller \
+      --noconfirm \
+      --clean \
+      --name offline-explorer-engine \
+      --paths "$repo_dir" \
+      --add-data "$repo_dir/assets/genome-computer-sunflower.png:assets" \
+      --hidden-import uuid \
+      prototype/entrypoint.py
+    exec "$runtime_dir/bin/python" scripts/collect-engine-licenses.py \
+      "$repo_dir/dist/offline-explorer-engine/licenses"
+    ;;
+  cli)
+    exec "$runtime_dir/bin/python" -m PyInstaller \
+      --noconfirm \
+      --clean \
+      --onefile \
+      --name offline-explorer \
+      --paths "$repo_dir" \
+      --add-data "$repo_dir/assets/genome-computer-sunflower.png:assets" \
+      --hidden-import uuid \
+      prototype/entrypoint.py
+    ;;
+  *)
+    echo "usage: ./prototype/build [engine|cli]" >&2
+    exit 2
+    ;;
+esac

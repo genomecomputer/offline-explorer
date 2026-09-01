@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="background" x1="176" y1="144" x2="848" y2="896" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#292929"/>
+      <stop offset="0.55" stop-color="#1B1B1B"/>
+      <stop offset="1" stop-color="#111111"/>
+    </linearGradient>
+    <radialGradient id="highlight" cx="0" cy="0" r="1" gradientTransform="translate(332 262) rotate(47) scale(724)" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#E8C148" stop-opacity="0.045"/>
+      <stop offset="0.58" stop-color="#E8C148" stop-opacity="0.008"/>
+      <stop offset="1" stop-color="#E8C148" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="tile-shadow" x="40" y="40" width="944" height="968" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="22" stdDeviation="26" flood-color="#000000" flood-opacity="0.34"/>
+    </filter>
+  </defs>
+
+  <g filter="url(#tile-shadow)">
+    <rect x="96" y="84" width="832" height="832" rx="190" fill="url(#background)"/>
+    <rect x="96" y="84" width="832" height="832" rx="190" fill="url(#highlight)"/>
+  </g>
+
+  <image href="genome-computer-sunflower.png" x="315" y="200" width="394" height="591" preserveAspectRatio="xMidYMid meet"/>
+</svg>

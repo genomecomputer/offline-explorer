@@ -1,0 +1,101 @@
+{
+  "name": "@genomecomputer/offline-explorer",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Private offline search for compatible .genome bundles",
+  "author": "Genome Computer",
+  "main": ".electron-dist/main.js",
+  "scripts": {
+    "build:electron": "tsc -p tsconfig.electron.json",
+    "typecheck": "tsc -p tsconfig.electron.json --noEmit",
+    "dev": "npm run build:electron && electron .",
+    "test:python": "node scripts/run-python-tests.mjs",
+    "test": "npm run typecheck && npm run build:electron && node --test .electron-dist/*.test.js && npm run test:python",
+    "test:e2e": "npm run build:electron && node scripts/run-electron-e2e.mjs",
+    "test:package": "node --test scripts/packaged-release.test.mjs",
+    "verify:mac-preview": "node scripts/verify-macos-preview.mjs",
+    "build:electron-licenses": "node scripts/collect-electron-licenses.mjs",
+    "build:engine": "./prototype/build engine",
+    "package": "npm run build:electron && npm run build:electron-licenses && npm run build:engine && electron-builder --dir",
+    "dist": "npm run build:electron && npm run build:electron-licenses && npm run build:engine && electron-builder",
+    "dist:mac-preview": "npm run build:electron && npm run build:electron-licenses && npm run build:engine && electron-builder --mac zip --arm64 --publish never"
+  },
+  "devDependencies": {
+    "@electron/get": "5.1.0",
+    "@electron-internal/extract-zip": "1.0.5",
+    "@electron/asar": "3.4.1",
+    "@electron/fuses": "1.8.0",
+    "@playwright/test": "1.62.1",
+    "@types/node": "26.2.0",
+    "electron": "43.4.0",
+    "electron-builder": "26.15.3",
+    "typescript": "7.0.2"
+  },
+  "build": {
+    "appId": "org.genomecomputer.offline-explorer",
+    "productName": "Offline Explorer",
+    "asar": true,
+    "afterSign": "scripts/refresh-adhoc-macos-signature.cjs",
+    "electronFuses": {
+      "runAsNode": false,
+      "enableNodeOptionsEnvironmentVariable": false,
+      "enableNodeCliInspectArguments": false,
+      "enableEmbeddedAsarIntegrityValidation": true,
+      "onlyLoadAppFromAsar": true,
+      "loadBrowserProcessSpecificV8Snapshot": false,
+      "grantFileProtocolExtraPrivileges": false
+    },
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      ".electron-dist/*.js",
+      "!.electron-dist/*.test.js",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "dist/offline-explorer-engine",
+        "to": "engine"
+      },
+      {
+        "from": "LICENSE",
+        "to": "licenses/OFFLINE-EXPLORER-LICENSE.txt"
+      },
+      {
+        "from": "TRADEMARKS.md",
+        "to": "licenses/OFFLINE-EXPLORER-TRADEMARKS.md"
+      },
+      {
+        "from": "assets/genome-computer-sunflower.png",
+        "to": "brand/genome-computer-sunflower.png"
+      },
+      {
+        "from": "dist/electron-licenses/LICENSE",
+        "to": "licenses/ELECTRON-LICENSE.txt"
+      },
+      {
+        "from": "dist/electron-licenses/LICENSES.chromium.html",
+        "to": "licenses/ELECTRON-THIRD-PARTY-NOTICES.html"
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.medical",
+      "icon": "assets/app-icon.png",
+      "target": ["zip"],
+      "identity": "-",
+      "hardenedRuntime": false,
+      "notarize": false,
+      "artifactName": "Offline.Explorer-${version}-${arch}-preview.${ext}"
+    },
+    "win": {
+      "icon": "assets/app-icon.png",
+      "target": ["portable"]
+    },
+    "linux": {
+      "category": "Science",
+      "icon": "assets/app-icon.png",
+      "target": ["AppImage"]
+    }
+  }
+}

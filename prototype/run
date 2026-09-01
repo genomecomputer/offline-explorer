@@ -1,0 +1,16 @@
+#!/bin/sh
+set -eu
+
+repo_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+runtime_dir="$repo_dir/.offline-explorer/prototype-venv"
+
+if [ ! -x "$runtime_dir/bin/python" ]; then
+  python3 -m venv "$runtime_dir"
+fi
+
+if ! "$runtime_dir/bin/python" -c 'import duckdb' >/dev/null 2>&1; then
+  "$runtime_dir/bin/pip" install --only-binary=:all: -r "$repo_dir/prototype/requirements.txt"
+fi
+
+cd "$repo_dir"
+exec "$runtime_dir/bin/python" -m prototype.selective_reader "$@"
